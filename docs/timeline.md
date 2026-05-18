@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-18** — apply.sh: add --extra-check flag for project-specific contexts *(feat/extra-check-flag)* — [decisions-branches/feat__extra-check-flag.md](decisions-branches/feat__extra-check-flag.md)
 - **2026-05-18** — Upgrade logmind 0.2.0 → 0.2.1 *(upgrade-logmind-021)* — [decisions-branches/upgrade-logmind-021.md](decisions-branches/upgrade-logmind-021.md)
 - **2026-05-18** — Fix post-install message + README contradictions for clud-bug-logmind variant *(feat/strict-required-status-checks)* — [decisions-branches/feat__strict-required-status-checks.md](decisions-branches/feat__strict-required-status-checks.md)
 - **2026-05-18** — Add clud-bug-logmind variant to reporulez (canonical bundle for repos using both tools) *(feat/strict-required-status-checks)* — [decisions-branches/feat__strict-required-status-checks.md](decisions-branches/feat__strict-required-status-checks.md)

@@ -38,7 +38,21 @@ curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.
 # If you already use a non-Copilot AI reviewer (Claude Code Review, CodeRabbit, Cursor, …):
 curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo external
+
+# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant)
+# plus your project's pytest matrix as extra required checks:
+curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
+  | bash -s -- owner/repo clud-bug-logmind \
+      --extra-check 'pytest (ubuntu-latest / py3.10)' \
+      --extra-check 'pytest (ubuntu-latest / py3.12)'
 ```
+
+`--extra-check 'CONTEXT NAME'` is repeatable and appends project-specific status
+check contexts to the variant's `required_status_checks` list at apply time. Lets
+a single command match a project's actual CI without forking the variant JSON.
+Only works against variants that ship `required_status_checks` (currently
+`clud-bug-logmind`); errors cleanly on `copilot`/`external` since they deliberately
+omit that rule.
 
 Requires the [`gh`](https://cli.github.com) CLI authenticated against the target repo, and `jq`.
 
