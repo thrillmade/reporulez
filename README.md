@@ -131,6 +131,21 @@ The script is idempotent — running it twice updates the existing ruleset inste
      those tools' workflows; if either tool is missing, those checks will never
      report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
+## Upgrading logmind
+
+After bumping the logmind CLI, re-run `logmind init` to refresh the shipped
+workflow templates:
+
+```sh
+pipx install --force logmind     # or: pip install --upgrade logmind
+logmind init                     # idempotent refresh in v0.2.1+ — rewrites
+                                 # workflow templates in place, leaves
+                                 # docs/ and .logmind/ untouched
+```
+
+For clud-bug, see [thrillmot/clud-bug](https://github.com/thrillmot/clud-bug)'s
+README for the current upgrade flow.
+
 ## Hand-import without the script
 
 If you don't want to run a shell script (e.g. inside CI), import the JSON directly:
