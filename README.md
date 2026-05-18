@@ -131,28 +131,20 @@ The script is idempotent — running it twice updates the existing ruleset inste
      those tools' workflows; if either tool is missing, those checks will never
      report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
-## Upgrading tooling installed in the repo
+## Upgrading logmind
 
-Each tool reporulez recommends (clud-bug, logmind) ships its own CLI + workflow
-templates. Upgrade pattern is the same shape for both:
+After bumping the logmind CLI, re-run `logmind init` to refresh the shipped
+workflow templates:
 
 ```sh
-# logmind
 pipx install --force logmind     # or: pip install --upgrade logmind
 logmind init                     # idempotent refresh in v0.2.1+ — rewrites
                                  # workflow templates in place, leaves
                                  # docs/ and .logmind/ untouched
 ```
 
-```sh
-# clud-bug
-npm install -g @thrillmot/clud-bug   # or: npx clud-bug@latest
-clud-bug update                       # refreshes .claude/skills/ and the
-                                      # generated workflow
-```
-
-Re-run the respective `init` / `update` command after every CLI bump so the
-shipped workflow templates stay current with the tool's expectations.
+For clud-bug, see [thrillmot/clud-bug](https://github.com/thrillmot/clud-bug)'s
+README for the current upgrade flow.
 
 ## Hand-import without the script
 
