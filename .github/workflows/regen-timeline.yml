@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install logmind
-        run: pip install 'logmind==0.2.0'
+        run: pip install 'logmind==0.2.1'
 
       - name: Verify docs/timeline.md is current
         run: |
