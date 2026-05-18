@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Apply the reporulez default ruleset + repo settings to a target repository.
 #
-# Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] [--human-review]
+# Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] \
+#                              [--human-review] \
+#                              [--extra-check 'CONTEXT NAME']...
 #
 # Defaults: copilot variant, no human review required (AI auto-mode).
 #
@@ -10,6 +12,13 @@
 # check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
 # so branches must be up to date — load-bearing for logmind's per-PR
 # derived-file conflict-free property.
+#
+# --extra-check 'CONTEXT NAME' is repeatable and adds project-specific status
+# check contexts (e.g. pytest matrix slots) to the ruleset's required_status_checks
+# list at apply time. Lets a single apply.sh call match a project's actual CI
+# without forking the variant JSON. Requires the chosen variant to ship a
+# required_status_checks rule — works with clud-bug-logmind; errors out cleanly
+# on copilot/external (which deliberately don't ship that rule).
 
 set -euo pipefail
 
@@ -30,11 +39,17 @@ case "$1" in -h|--help) usage; exit 0 ;; esac
 REPO="$1"; shift
 VARIANT="copilot"
 HUMAN_REVIEW="false"
+EXTRA_CHECKS=()  # parallel array of context names; preserves order
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
     --human-review) HUMAN_REVIEW="true"; shift ;;
+    --extra-check)
+      [[ $# -ge 2 ]] || die "--extra-check requires a CONTEXT NAME argument"
+      EXTRA_CHECKS+=("$2"); shift 2 ;;
+    --extra-check=*)
+      EXTRA_CHECKS+=("${1#--extra-check=}"); shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -70,6 +85,23 @@ if [[ "$HUMAN_REVIEW" == "true" ]]; then
     (.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count) = 1
     | (.rules[] | select(.type == "pull_request") | .parameters.require_last_push_approval) = true
   ')"
+fi
+
+# Patch required_status_checks with each --extra-check value. Lets a single
+# apply.sh call add project-specific contexts (e.g. pytest matrix slots) without
+# forking the variant JSON. The variant must already ship a required_status_checks
+# rule (currently only clud-bug-logmind does); other variants deliberately omit
+# that rule because GitHub's API rejects an empty checks list.
+if [[ ${#EXTRA_CHECKS[@]} -gt 0 ]]; then
+  echo "$RULESET_JSON" | jq -e '.rules | any(.type == "required_status_checks")' >/dev/null \
+    || die "--extra-check requires a variant that ships required_status_checks (use clud-bug-logmind, or skip --extra-check and add the rule manually in the UI)"
+  for ctx in "${EXTRA_CHECKS[@]}"; do
+    info "Adding required status check context: $ctx"
+    RULESET_JSON="$(echo "$RULESET_JSON" | CTX="$ctx" jq '
+      (.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks)
+        |= (. + [{"context": env.CTX}] | unique_by(.context))
+    ')"
+  done
 fi
 
 # 1. Tune repo-level settings that rulesets cannot control.
