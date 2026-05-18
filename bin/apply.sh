@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Apply the reporulez default ruleset + repo settings to a target repository.
 #
-# Usage: apply.sh <owner/repo> [copilot|external] [--human-review]
+# Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] [--human-review]
 #
 # Defaults: copilot variant, no human review required (AI auto-mode).
+#
+# The clud-bug-logmind variant extends external with a required_status_checks
+# rule for the canonical contexts shipped by both tools (clud-bug-review,
+# check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
+# so branches must be up to date — load-bearing for logmind's per-PR
+# derived-file conflict-free property.
 
 set -euo pipefail
 
@@ -15,7 +21,7 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,7p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,12p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
@@ -27,7 +33,7 @@ HUMAN_REVIEW="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    copilot|external) VARIANT="$1"; shift ;;
+    copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
     --human-review) HUMAN_REVIEW="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
