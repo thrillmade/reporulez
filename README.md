@@ -44,18 +44,27 @@ Requires the [`gh`](https://cli.github.com) CLI authenticated against the target
 
 ## Variants
 
-| Variant | Copilot auto-review | Use when |
-|---|---|---|
-| `copilot` (default) | enabled via the `copilot_code_review` ruleset rule | You want GitHub's built-in reviewer to comment on every PR. |
-| `external` | not included | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmot/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
+| Variant | Copilot auto-review | Required status checks | Use when |
+|---|---|---|---|
+| `copilot` (default) | enabled via the `copilot_code_review` ruleset rule | none — add manually after install | You want GitHub's built-in reviewer to comment on every PR. |
+| `external` | not included | none — add manually after install | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmot/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
+| `clud-bug-logmind` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | Canonical bundle for repos with **both** [**clud-bug**](https://github.com/thrillmot/clud-bug) and [**logmind**](https://logmind.dev) installed. Extends `external` with the four well-known check contexts both tools ship + strict-mode so logmind v0.2's derived-file conflict-free property stays sound. |
 
 > 💡 Pairs nicely with [**clud-bug**](https://github.com/thrillmot/clud-bug): a one-command (`npx clud-bug init`) install of a Claude PR-review GitHub Action that auto-discovers project-aware review skills from [skills.sh](https://skills.sh) and resolves its own review threads when issues are fixed — which is exactly what the `required_review_thread_resolution` gate in this ruleset is designed to lean on. This repo itself uses clud-bug; see PR #2 / #3 for live review examples.
 
-Both variants are otherwise identical: PR required, force push and deletion blocked,
+All three variants share the structural rules: PR required, force push and deletion blocked,
 linear history, squash-only merges, dismiss stale reviews, all threads must resolve.
-Status checks are **not** part of the shipped ruleset (GitHub's API rejects an empty
-list) — add a `Require status checks to pass` rule with your CI workflow names after
-install.
+The `copilot` and `external` variants **deliberately omit** a `required_status_checks` rule
+(GitHub's API rejects an empty list, and we can't know your CI workflow names) — add the
+rule with your contexts manually after install. The `clud-bug-logmind` variant skips that
+manual step because we *do* know the canonical contexts when both tools are installed.
+
+> **Note on `clud-bug-logmind`'s strict mode:** `strict_required_status_checks_policy: true`
+> in this variant is load-bearing for logmind v0.2's per-PR derived-file model (`docs/timeline.md`
+> regenerated on every PR). Without rebase-before-merge, two concurrent PRs can each pass
+> `check-derived-docs` independently and then deadlock on conflicting regens at merge time.
+> If logmind ever changes that model (e.g. v0.3 auto-merges `timeline.md`), revisit whether
+> strict mode is still required here.
 
 `require_last_push_approval` defaults to `false`. It would deadlock merges in 0-approval
 mode (`require_last_push_approval: true` + `required_approving_review_count: 0` means
@@ -97,8 +106,14 @@ The script is idempotent — running it twice updates the existing ruleset inste
 ## After install — manual steps
 
 1. **Add a `Require status checks to pass` rule** with your CI workflow names.
-   The ruleset ships without this rule because GitHub's API rejects an empty list.
-   Settings → Rules → Rulesets → `reporulez-default` → "Require status checks to pass".
+   - **`copilot` / `external` variants:** the ruleset ships without this rule
+     (GitHub's API rejects an empty list, and we can't know your workflow names).
+     Add it via Settings → Rules → Rulesets → `reporulez-default` → "Require
+     status checks to pass".
+   - **`clud-bug-logmind` variant: skip this step.** The ruleset already ships
+     this rule with the four canonical contexts (`clud-bug-review`,
+     `check-derived-docs`, `check-decisions`, `check-links`) and strict mode on.
+     Editing the rule manually here will clobber those contexts.
 2. **Drop in templates** if you want:
    ```sh
    curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/templates/CODEOWNERS \
@@ -109,6 +124,12 @@ The script is idempotent — running it twice updates the existing ruleset inste
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.
+   - `clud-bug-logmind` variant: **both** [clud-bug](https://github.com/thrillmot/clud-bug)
+     **and** [logmind](https://logmind.dev) must be installed on the target repo
+     (run `npx clud-bug init` and `logmind init --all-agents --install-hook`).
+     The shipped `required_status_checks` rule pins four contexts that come from
+     those tools' workflows; if either tool is missing, those checks will never
+     report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
 ## Hand-import without the script
 

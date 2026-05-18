@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Apply the reporulez default ruleset + repo settings to a target repository.
 #
-# Usage: apply.sh <owner/repo> [copilot|external] [--human-review]
+# Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] [--human-review]
 #
 # Defaults: copilot variant, no human review required (AI auto-mode).
+#
+# The clud-bug-logmind variant extends external with a required_status_checks
+# rule for the canonical contexts shipped by both tools (clud-bug-review,
+# check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
+# so branches must be up to date — load-bearing for logmind's per-PR
+# derived-file conflict-free property.
 
 set -euo pipefail
 
@@ -15,7 +21,7 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,7p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,12p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
@@ -27,7 +33,7 @@ HUMAN_REVIEW="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    copilot|external) VARIANT="$1"; shift ;;
+    copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
     --human-review) HUMAN_REVIEW="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -105,21 +111,40 @@ cat >&2 <<EOF
 OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW).
 
 Next steps you should do manually:
+EOF
+
+if [[ "$VARIANT" == "clud-bug-logmind" ]]; then
+  # The clud-bug-logmind variant already ships required_status_checks with the
+  # four canonical contexts, so the manual "add a status-checks rule" step is
+  # skipped here. The most important caveat for this variant is below.
+  cat >&2 <<EOF
+  1. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
+  2. Confirm BOTH clud-bug AND logmind are installed on this repo. The ruleset's
+     required_status_checks rule pins four contexts (clud-bug-review,
+     check-derived-docs, check-decisions, check-links) that come from those
+     tools' workflows. If either tool is missing, those checks will never
+     report on PRs and every PR will block forever (strict_required_status_checks_policy
+     is on). Install with:
+       npx clud-bug init
+       logmind init --all-agents --install-hook
+EOF
+else
+  cat >&2 <<EOF
   1. Add a 'Require status checks to pass' rule with your CI workflow names via
      Settings -> Rules -> Rulesets -> '$RULESET_NAME' -> Require status checks to pass.
      (The ruleset ships without this rule because GitHub's API rejects an empty list.)
   2. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
 EOF
-
-if [[ "$VARIANT" == "copilot" ]]; then
-  cat >&2 <<EOF
+  if [[ "$VARIANT" == "copilot" ]]; then
+    cat >&2 <<EOF
   3. Confirm Copilot code review is licensed for this repo (Pro/Pro+/Business).
      The copilot_code_review rule is inert without entitlement.
 EOF
-else
-  cat >&2 <<EOF
+  else
+    cat >&2 <<EOF
   3. Confirm a non-Copilot AI reviewer GitHub App is installed (e.g. Anthropic's
      Claude Code Review, CodeRabbit, Cursor) and configured to comment on every PR.
      Without one, the thread-resolution gate has nothing to gate on.
 EOF
+  fi
 fi
