@@ -59,6 +59,13 @@ The `copilot` and `external` variants **deliberately omit** a `required_status_c
 rule with your contexts manually after install. The `clud-bug-logmind` variant skips that
 manual step because we *do* know the canonical contexts when both tools are installed.
 
+> **Note on `clud-bug-logmind`'s strict mode:** `strict_required_status_checks_policy: true`
+> in this variant is load-bearing for logmind v0.2's per-PR derived-file model (`docs/timeline.md`
+> regenerated on every PR). Without rebase-before-merge, two concurrent PRs can each pass
+> `check-derived-docs` independently and then deadlock on conflicting regens at merge time.
+> If logmind ever changes that model (e.g. v0.3 auto-merges `timeline.md`), revisit whether
+> strict mode is still required here.
+
 `require_last_push_approval` defaults to `false`. It would deadlock merges in 0-approval
 mode (`require_last_push_approval: true` + `required_approving_review_count: 0` means
 "the last push must be approved by a non-pusher, but no one is required to approve" —
@@ -99,8 +106,14 @@ The script is idempotent — running it twice updates the existing ruleset inste
 ## After install — manual steps
 
 1. **Add a `Require status checks to pass` rule** with your CI workflow names.
-   The ruleset ships without this rule because GitHub's API rejects an empty list.
-   Settings → Rules → Rulesets → `reporulez-default` → "Require status checks to pass".
+   - **`copilot` / `external` variants:** the ruleset ships without this rule
+     (GitHub's API rejects an empty list, and we can't know your workflow names).
+     Add it via Settings → Rules → Rulesets → `reporulez-default` → "Require
+     status checks to pass".
+   - **`clud-bug-logmind` variant: skip this step.** The ruleset already ships
+     this rule with the four canonical contexts (`clud-bug-review`,
+     `check-derived-docs`, `check-decisions`, `check-links`) and strict mode on.
+     Editing the rule manually here will clobber those contexts.
 2. **Drop in templates** if you want:
    ```sh
    curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/templates/CODEOWNERS \
@@ -111,6 +124,12 @@ The script is idempotent — running it twice updates the existing ruleset inste
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.
+   - `clud-bug-logmind` variant: **both** [clud-bug](https://github.com/thrillmot/clud-bug)
+     **and** [logmind](https://logmind.dev) must be installed on the target repo
+     (run `npx clud-bug init` and `logmind init --all-agents --install-hook`).
+     The shipped `required_status_checks` rule pins four contexts that come from
+     those tools' workflows; if either tool is missing, those checks will never
+     report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
 ## Hand-import without the script
 
