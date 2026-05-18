@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-18** — Fix post-install message + README contradictions for clud-bug-logmind variant *(feat/strict-required-status-checks)* — [decisions-branches/feat__strict-required-status-checks.md](decisions-branches/feat__strict-required-status-checks.md)
 - **2026-05-18** — Add clud-bug-logmind variant to reporulez (canonical bundle for repos using both tools) *(feat/strict-required-status-checks)* — [decisions-branches/feat__strict-required-status-checks.md](decisions-branches/feat__strict-required-status-checks.md)
 - **2026-05-15** — Upgrade logmind 0.1.4 → 0.2.0 (derived-file architecture) *(upgrade-logmind-020)* — [decisions-branches/upgrade-logmind-020.md](decisions-branches/upgrade-logmind-020.md)
 - **2026-05-15** — Initialize logmind decision tracking *(upgrade-logmind-020)* — [decisions-branches/upgrade-logmind-020.md](decisions-branches/upgrade-logmind-020.md)
