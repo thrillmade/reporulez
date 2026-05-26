@@ -104,8 +104,14 @@ fi
 # disabling the ruleset globally.
 if [[ "$BYPASS_ADMIN" == "true" ]]; then
   info "Patching bypass_actors: Repository admin (RepositoryRole id=5, bypass_mode=always)"
+  # Append + dedupe rather than replace, so any bypass_actors entries that a
+  # future variant ships (or that the user added manually) survive. Identity
+  # is the (actor_type, actor_id) pair — actor_id is scoped per actor_type.
   RULESET_JSON="$(echo "$RULESET_JSON" | jq '
-    .bypass_actors = [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }]
+    .bypass_actors |= (
+      . + [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }]
+      | unique_by([.actor_type, .actor_id])
+    )
   ')"
 fi
 
