@@ -8,3 +8,13 @@
 - Re-applying clud-bug-logmind to a repo without prior bypass actors now ADDS Repository admin — additive, matches what users were almost certainly going to add manually. Existing repos with explicit --bypass-admin in their command see no change. Repos with explicit --no-bypass-admin also see no change. usage() sed range bumped 2,29 -> 2,35 to capture the expanded header docs. README usage example for clud-bug-logmind no longer shows --bypass-admin (its the default).
 
 ---
+## 2026-05-26 17:49 - Address PR #13 bot feedback: reword post-install bypass message for --no-bypass-admin case
+
+**Reasoning:** clud-bug-review on PR #13 flagged a non-blocking wording issue: the post-install message at apply.sh:212-222 said "Consider re-running with --bypass-admin" whenever BYPASS_ADMIN != "true" under clud-bug-logmind. With the new default flipped to ON, that branch now only fires when the user EXPLICITLY passed --no-bypass-admin — telling them to "re-run with --bypass-admin" contradicts their stated opt-out intent. Reworded to acknowledge the opt-out, explain the consequence (self-mod deadlocks), and offer the re-run as a fallback "if you change your mind."
+
+**Alternatives considered:** Suppress the message entirely when --no-bypass-admin was passed. Rejected: the consequence (self-mod PR deadlocks) is important to surface so the user knows what they opted into.
+
+**Implications:**
+- Closes the bot loose end; PR #13 becomes truly clean ship.
+
+---

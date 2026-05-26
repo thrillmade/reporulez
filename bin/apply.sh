@@ -211,12 +211,13 @@ if [[ "$VARIANT" == "clud-bug-logmind" ]]; then
 EOF
   if [[ "$BYPASS_ADMIN" != "true" ]]; then
     cat >&2 <<EOF
-  3. Consider re-running with --bypass-admin. clud-bug's review action
-     refuses (401) to review PRs that edit its own workflow files, so the
-     required clud-bug-review check fails and merge deadlocks on self-mod
-     PRs (e.g. version bumps of clud-bug itself). The flag adds the
-     "Repository admin" role to bypass_actors so admins can merge those
-     PRs without disabling the whole ruleset:
+  3. You opted OUT of admin bypass via --no-bypass-admin. Heads up: clud-bug's
+     review action refuses (401) to review PRs that edit its own workflow files,
+     so the required clud-bug-review check fails and merge deadlocks on self-mod
+     PRs (e.g. version bumps of clud-bug itself). Without the bypass you'll need
+     to either disable the ruleset for those merges or hand-PATCH bypass_actors.
+     If you change your mind, re-run with --bypass-admin (now the default for
+     this variant):
        ./bin/apply.sh $REPO clud-bug-logmind --bypass-admin
 EOF
   fi
