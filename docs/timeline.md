@@ -15,6 +15,8 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-26** — Address PR #13 bot feedback: reword post-install bypass message for --no-bypass-admin case *(feat/clud-bug-logmind-bypass-default)* — [decisions-branches/feat__clud-bug-logmind-bypass-default.md](decisions-branches/feat__clud-bug-logmind-bypass-default.md)
+- **2026-05-26** — Default --bypass-admin: ON for clud-bug-logmind variant (1H) *(feat/clud-bug-logmind-bypass-default)* — [decisions-branches/feat__clud-bug-logmind-bypass-default.md](decisions-branches/feat__clud-bug-logmind-bypass-default.md)
 - **2026-05-26** — Add --bypass-admin flag to apply.sh for clud-bug self-mod ceremonies *(fix/clud-bug-logmind-self-mod-bypass)* — [decisions-branches/fix__clud-bug-logmind-self-mod-bypass.md](decisions-branches/fix__clud-bug-logmind-self-mod-bypass.md)
 - **2026-05-18** — apply.sh: add --extra-check flag for project-specific contexts *(feat/extra-check-flag)* — [decisions-branches/feat__extra-check-flag.md](decisions-branches/feat__extra-check-flag.md)
 - **2026-05-18** — Upgrade logmind 0.2.0 → 0.2.1 *(upgrade-logmind-021)* — [decisions-branches/upgrade-logmind-021.md](decisions-branches/upgrade-logmind-021.md)
