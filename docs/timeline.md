@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-26** — Reinit clud-bug install at v0.5.15 (recovery from pre-marker install) *(chore/reinit-clud-bug-at-v0.5.15)* — [decisions-branches/chore__reinit-clud-bug-at-v0.5.15.md](decisions-branches/chore__reinit-clud-bug-at-v0.5.15.md)
 - **2026-05-26** — Address PR #13 bot feedback: reword post-install bypass message for --no-bypass-admin case *(feat/clud-bug-logmind-bypass-default)* — [decisions-branches/feat__clud-bug-logmind-bypass-default.md](decisions-branches/feat__clud-bug-logmind-bypass-default.md)
 - **2026-05-26** — Default --bypass-admin: ON for clud-bug-logmind variant (1H) *(feat/clud-bug-logmind-bypass-default)* — [decisions-branches/feat__clud-bug-logmind-bypass-default.md](decisions-branches/feat__clud-bug-logmind-bypass-default.md)
 - **2026-05-26** — Add --bypass-admin flag to apply.sh for clud-bug self-mod ceremonies *(fix/clud-bug-logmind-self-mod-bypass)* — [decisions-branches/fix__clud-bug-logmind-self-mod-bypass.md](decisions-branches/fix__clud-bug-logmind-self-mod-bypass.md)
