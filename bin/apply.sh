@@ -3,15 +3,23 @@
 #
 # Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] \
 #                              [--human-review] \
+#                              [--bypass-admin] \
 #                              [--extra-check 'CONTEXT NAME']...
 #
-# Defaults: copilot variant, no human review required (AI auto-mode).
+# Defaults: copilot variant, no human review required (AI auto-mode), no bypass actors.
 #
 # The clud-bug-logmind variant extends external with a required_status_checks
 # rule for the canonical contexts shipped by both tools (clud-bug-review,
 # check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
 # so branches must be up to date — load-bearing for logmind's per-PR
 # derived-file conflict-free property.
+#
+# --bypass-admin pre-populates bypass_actors with "Repository admin" (RepositoryRole
+# id=5, bypass_mode=always). Recommended with the clud-bug-logmind variant:
+# clud-bug's review action 401s on PRs that edit its own workflow files
+# (self-mod guard), so the required clud-bug-review check fails and merge
+# deadlocks. The bypass lets an admin merge those self-mod PRs without
+# disabling the whole ruleset.
 #
 # --extra-check 'CONTEXT NAME' is repeatable and adds project-specific status
 # check contexts (e.g. pytest matrix slots) to the ruleset's required_status_checks
@@ -30,7 +38,7 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,29p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
@@ -39,12 +47,14 @@ case "$1" in -h|--help) usage; exit 0 ;; esac
 REPO="$1"; shift
 VARIANT="copilot"
 HUMAN_REVIEW="false"
+BYPASS_ADMIN="false"
 EXTRA_CHECKS=()  # parallel array of context names; preserves order
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
     --human-review) HUMAN_REVIEW="true"; shift ;;
+    --bypass-admin) BYPASS_ADMIN="true"; shift ;;
     --extra-check)
       [[ $# -ge 2 ]] || die "--extra-check requires a CONTEXT NAME argument"
       EXTRA_CHECKS+=("$2"); shift 2 ;;
@@ -84,6 +94,18 @@ if [[ "$HUMAN_REVIEW" == "true" ]]; then
   RULESET_JSON="$(echo "$RULESET_JSON" | jq '
     (.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count) = 1
     | (.rules[] | select(.type == "pull_request") | .parameters.require_last_push_approval) = true
+  ')"
+fi
+
+# Patch bypass_actors if --bypass-admin: Repository admin role (id=5) gets
+# bypass_mode=always. Lets repo admins merge PRs that legitimately can't
+# satisfy every required check (e.g. clud-bug self-mod PRs where the
+# clud-bug-review action 401s by design on its own workflow edits) without
+# disabling the ruleset globally.
+if [[ "$BYPASS_ADMIN" == "true" ]]; then
+  info "Patching bypass_actors: Repository admin (RepositoryRole id=5, bypass_mode=always)"
+  RULESET_JSON="$(echo "$RULESET_JSON" | jq '
+    .bypass_actors = [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }]
   ')"
 fi
 
@@ -140,7 +162,7 @@ fi
 # 3. Follow-up checklist (cannot be done safely or automatically).
 cat >&2 <<EOF
 
-OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW).
+OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW, bypass admin: $BYPASS_ADMIN).
 
 Next steps you should do manually:
 EOF
@@ -160,6 +182,17 @@ if [[ "$VARIANT" == "clud-bug-logmind" ]]; then
        npx clud-bug init
        logmind init --all-agents --install-hook
 EOF
+  if [[ "$BYPASS_ADMIN" != "true" ]]; then
+    cat >&2 <<EOF
+  3. Consider re-running with --bypass-admin. clud-bug's review action
+     refuses (401) to review PRs that edit its own workflow files, so the
+     required clud-bug-review check fails and merge deadlocks on self-mod
+     PRs (e.g. version bumps of clud-bug itself). The flag adds the
+     "Repository admin" role to bypass_actors so admins can merge those
+     PRs without disabling the whole ruleset:
+       ./bin/apply.sh $REPO clud-bug-logmind --bypass-admin
+EOF
+  fi
 else
   cat >&2 <<EOF
   1. Add a 'Require status checks to pass' rule with your CI workflow names via

@@ -39,10 +39,12 @@ curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.
 curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo external
 
-# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant)
-# plus your project's pytest matrix as extra required checks:
+# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant),
+# admin bypass for clud-bug self-mod PRs, plus your project's pytest matrix
+# as extra required checks:
 curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo clud-bug-logmind \
+      --bypass-admin \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
       --extra-check 'pytest (ubuntu-latest / py3.12)'
 ```
@@ -53,6 +55,9 @@ a single command match a project's actual CI without forking the variant JSON.
 Only works against variants that ship `required_status_checks` (currently
 `clud-bug-logmind`); errors cleanly on `copilot`/`external` since they deliberately
 omit that rule.
+
+`--bypass-admin` adds the **Repository admin** role to `bypass_actors`. Recommended
+with `clud-bug-logmind` — see [Admin bypass flag](#admin-bypass-flag) below for why.
 
 Requires the [`gh`](https://cli.github.com) CLI authenticated against the target repo, and `jq`.
 
@@ -93,6 +98,43 @@ requirement stay consistent.
 must come from a **human** — both GitHub Copilot code review and Anthropic's Claude
 Code Review GitHub App submit *Comment* reviews only, never *Approve*, so they cannot
 satisfy this count. (Bots that *can* approve, like CodeRabbit's auto-approve, do.)
+
+The default `required_approving_review_count: 0` is intentional for AI-driven flows:
+the merge gate is the **thread-resolution + status-check** combination, not an approval
+count. An AI reviewer (clud-bug, Claude Code Review, Copilot, CodeRabbit) creates
+review threads that must be resolved, plus the required status checks must be green
+— there's no count to satisfy because no approvals were ever required to begin with.
+Pass `--human-review` only if you want to layer a human approver on top.
+
+### Admin bypass flag
+
+`--bypass-admin` pre-populates `bypass_actors` with the **Repository admin** role
+(`actor_type: RepositoryRole`, `actor_id: 5`, `bypass_mode: always`). Recommended when
+applying the `clud-bug-logmind` variant.
+
+**Why it matters for clud-bug:** `clud-bug`'s reviewer action (`anthropics/claude-code-action`)
+deliberately refuses (HTTP 401) to review pull requests that modify its own workflow
+files under `.github/workflows/clud-bug-*.yml`. This is a self-mod guard — without it,
+a malicious PR could rewrite the reviewer to rubber-stamp itself. The cost is that
+*legitimate* self-mod PRs (e.g. routine `npx clud-bug upgrade` version bumps) also
+fail the required `clud-bug-review` check and deadlock against `required_status_checks`.
+
+Three ways out:
+1. **`--bypass-admin` (recommended):** a repo admin can merge the stuck PR via
+   "Bypass branch protections" without touching the ruleset.
+2. **Hand-PATCH `bypass_actors` mid-merge** via `gh api --method PUT repos/$REPO/rulesets/$ID`
+   — works once, but every fresh install needs the same manual setup.
+3. **Toggle `enforcement: disabled` globally**, merge, re-enable — opens a real
+   policy-gap window where the ruleset doesn't protect *anything*.
+
+The flag works with any variant but is most useful for `clud-bug-logmind` because that's
+the variant whose required-checks list is opinionated about clud-bug specifically.
+
+**Org repos:** the `RepositoryRole` admin role exists on both personal and org-managed
+repos, so `--bypass-admin` works in both contexts. Org owners on an org-managed repo
+already inherit admin access to the repo and can use the same bypass. If you want a
+*separate* org-administrator bypass entry (`actor_type: OrganizationAdmin`, `actor_id: 1`),
+add it manually after install — including it by default would 404 on personal repos.
 
 ## What gets configured
 
