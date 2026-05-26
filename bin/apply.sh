@@ -3,10 +3,14 @@
 #
 # Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] \
 #                              [--human-review] \
-#                              [--bypass-admin] \
+#                              [--bypass-admin | --no-bypass-admin] \
 #                              [--extra-check 'CONTEXT NAME']...
 #
-# Defaults: copilot variant, no human review required (AI auto-mode), no bypass actors.
+# Defaults: copilot variant, no human review required (AI auto-mode). Bypass
+# actors default OFF for copilot/external and ON for clud-bug-logmind (its
+# self-mod use case practically always needs the Repository admin bypass —
+# see --bypass-admin docs below). Override per-variant default with
+# --bypass-admin (force on) or --no-bypass-admin (force off).
 #
 # The clud-bug-logmind variant extends external with a required_status_checks
 # rule for the canonical contexts shipped by both tools (clud-bug-review,
@@ -15,11 +19,13 @@
 # derived-file conflict-free property.
 #
 # --bypass-admin pre-populates bypass_actors with "Repository admin" (RepositoryRole
-# id=5, bypass_mode=always). Recommended with the clud-bug-logmind variant:
-# clud-bug's review action 401s on PRs that edit its own workflow files
-# (self-mod guard), so the required clud-bug-review check fails and merge
-# deadlocks. The bypass lets an admin merge those self-mod PRs without
-# disabling the whole ruleset.
+# id=5, bypass_mode=always). On clud-bug-logmind this is the DEFAULT (use
+# --no-bypass-admin to opt out) because clud-bug's review action 401s on
+# PRs that edit its own workflow files (self-mod guard), so the required
+# clud-bug-review check fails and merge deadlocks. The bypass lets an admin
+# merge those self-mod PRs without disabling the whole ruleset. On copilot
+# and external variants the default is OFF — opt in with --bypass-admin
+# only if you also have a self-mod ceremony to support.
 #
 # --extra-check 'CONTEXT NAME' is repeatable and adds project-specific status
 # check contexts (e.g. pytest matrix slots) to the ruleset's required_status_checks
@@ -38,7 +44,7 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,29p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,35p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
@@ -47,7 +53,7 @@ case "$1" in -h|--help) usage; exit 0 ;; esac
 REPO="$1"; shift
 VARIANT="copilot"
 HUMAN_REVIEW="false"
-BYPASS_ADMIN="false"
+BYPASS_ADMIN=""  # sentinel: empty = use per-variant default; "true"/"false" = explicit
 EXTRA_CHECKS=()  # parallel array of context names; preserves order
 
 while [[ $# -gt 0 ]]; do
@@ -55,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
     --human-review) HUMAN_REVIEW="true"; shift ;;
     --bypass-admin) BYPASS_ADMIN="true"; shift ;;
+    --no-bypass-admin) BYPASS_ADMIN="false"; shift ;;
     --extra-check)
       [[ $# -ge 2 ]] || die "--extra-check requires a CONTEXT NAME argument"
       EXTRA_CHECKS+=("$2"); shift 2 ;;
@@ -64,6 +71,20 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown argument: $1" ;;
   esac
 done
+
+# Per-variant default for BYPASS_ADMIN when caller didn't pass the flag.
+# clud-bug-logmind defaults ON because the variant's self-mod use case
+# (clud-bug's claude-code-action 401s on PRs editing its own workflow
+# files) practically always needs the Repository admin bypass — without
+# it, every self-mod PR deadlocks. copilot/external default OFF because
+# they don't have a self-mod ceremony built in. Explicit --bypass-admin
+# or --no-bypass-admin always wins over the default.
+if [[ -z "$BYPASS_ADMIN" ]]; then
+  case "$VARIANT" in
+    clud-bug-logmind) BYPASS_ADMIN="true" ;;
+    *)                BYPASS_ADMIN="false" ;;
+  esac
+fi
 
 [[ "$REPO" == */* ]] || die "repo must be in owner/repo form, got: $REPO"
 command -v gh >/dev/null || die "gh CLI not found (https://cli.github.com)"

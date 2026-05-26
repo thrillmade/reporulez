@@ -39,12 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.
 curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo external
 
-# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant),
-# admin bypass for clud-bug self-mod PRs, plus your project's pytest matrix
-# as extra required checks:
+# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant;
+# Repository admin bypass for clud-bug self-mod PRs is ON BY DEFAULT for
+# this variant), plus your project's pytest matrix as extra required checks:
 curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo clud-bug-logmind \
-      --bypass-admin \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
       --extra-check 'pytest (ubuntu-latest / py3.12)'
 ```
@@ -56,8 +55,11 @@ Only works against variants that ship `required_status_checks` (currently
 `clud-bug-logmind`); errors cleanly on `copilot`/`external` since they deliberately
 omit that rule.
 
-`--bypass-admin` adds the **Repository admin** role to `bypass_actors`. Recommended
-with `clud-bug-logmind` — see [Admin bypass flag](#admin-bypass-flag) below for why.
+`--bypass-admin` adds the **Repository admin** role to `bypass_actors`. **Default
+ON for `clud-bug-logmind`** (the self-mod use case practically always needs it);
+default OFF for `copilot`/`external`. Override the per-variant default with
+`--no-bypass-admin` to force off, or `--bypass-admin` to force on. See
+[Admin bypass flag](#admin-bypass-flag) below for the rationale.
 
 Requires the [`gh`](https://cli.github.com) CLI authenticated against the target repo, and `jq`.
 
@@ -109,8 +111,14 @@ Pass `--human-review` only if you want to layer a human approver on top.
 ### Admin bypass flag
 
 `--bypass-admin` pre-populates `bypass_actors` with the **Repository admin** role
-(`actor_type: RepositoryRole`, `actor_id: 5`, `bypass_mode: always`). Recommended when
-applying the `clud-bug-logmind` variant.
+(`actor_type: RepositoryRole`, `actor_id: 5`, `bypass_mode: always`).
+
+**Per-variant default:**
+- `clud-bug-logmind` → **ON by default** (the variant's self-mod use case practically
+  always needs the bypass — without it every routine clud-bug self-mod deadlocks).
+  Use `--no-bypass-admin` to opt out.
+- `copilot`, `external` → **OFF by default** (no built-in self-mod use case).
+  Pass `--bypass-admin` to opt in.
 
 **Why it matters for clud-bug:** `clud-bug`'s reviewer action (`anthropics/claude-code-action`)
 deliberately refuses (HTTP 401) to review pull requests that modify its own workflow
@@ -120,15 +128,16 @@ a malicious PR could rewrite the reviewer to rubber-stamp itself. The cost is th
 fail the required `clud-bug-review` check and deadlock against `required_status_checks`.
 
 Three ways out:
-1. **`--bypass-admin` (recommended):** a repo admin can merge the stuck PR via
-   "Bypass branch protections" without touching the ruleset.
+1. **`--bypass-admin` (default ON for `clud-bug-logmind`):** a repo admin can merge
+   the stuck PR via "Bypass branch protections" without touching the ruleset.
 2. **Hand-PATCH `bypass_actors` mid-merge** via `gh api --method PUT repos/$REPO/rulesets/$ID`
    — works once, but every fresh install needs the same manual setup.
 3. **Toggle `enforcement: disabled` globally**, merge, re-enable — opens a real
    policy-gap window where the ruleset doesn't protect *anything*.
 
-The flag works with any variant but is most useful for `clud-bug-logmind` because that's
-the variant whose required-checks list is opinionated about clud-bug specifically.
+The flag works with any variant; we made it the default ONLY for `clud-bug-logmind`
+because that's the variant whose required-checks list is opinionated about clud-bug
+specifically, and clud-bug's self-mod ceremony is a normal recurring flow there.
 
 **Org repos:** the `RepositoryRole` admin role exists on both personal and org-managed
 repos, so `--bypass-admin` works in both contexts. Org owners on an org-managed repo
