@@ -1,0 +1,15 @@
+# Generated from templates/dependabot/github-actions-only.yml — see that
+# file for the other variants (python.yml, typescript.yml). reporulez is
+# a shell-script repo with no runtime deps; only GitHub Actions get bumped.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

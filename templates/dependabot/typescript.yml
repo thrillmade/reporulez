@@ -1,0 +1,36 @@
+# dependabot/typescript.yml — weekly dep bumps for TS/JS repos.
+#
+# Drop this file at .github/dependabot.yml of a TypeScript or JavaScript
+# project. Bumps:
+#   - npm dependencies (package.json in repo root)
+#   - GitHub Actions versions in .github/workflows/
+#
+# Weekly cadence on Monday, capped at 5 open PRs per ecosystem. For a
+# monorepo, duplicate the npm entry per workspace and set `directory:`
+# to each workspace path (e.g. "/packages/web", "/packages/api").
+#
+# Install:
+#   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/dependabot/typescript.yml \
+#     -o .github/dependabot.yml
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

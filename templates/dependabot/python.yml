@@ -1,0 +1,35 @@
+# dependabot/python.yml — weekly dep bumps for Python repos.
+#
+# Drop this file at .github/dependabot.yml of a Python project. Bumps:
+#   - pip dependencies (requirements.txt / pyproject.toml in repo root)
+#   - GitHub Actions versions in .github/workflows/
+#
+# Weekly cadence on Monday, capped at 5 open PRs per ecosystem to keep
+# noise tolerable. If your pyproject.toml lives in a subdir, change the
+# `directory:` value on the pip entry to match.
+#
+# Install:
+#   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/dependabot/python.yml \
+#     -o .github/dependabot.yml
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

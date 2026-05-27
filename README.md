@@ -186,6 +186,26 @@ The script is idempotent — running it twice updates the existing ruleset inste
    curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/pull_request_template.md \
      -o .github/pull_request_template.md
    ```
+
+   **Dependabot templates** under `templates/dependabot/` cover the realistic
+   shapes thrillmade-org repos land on. Pick one and curl it into
+   `.github/dependabot.yml`:
+
+   | Template | Ecosystems | Use when |
+   |---|---|---|
+   | `python.yml` | pip + github-actions | Python projects (pyproject.toml / requirements.txt at repo root). |
+   | `typescript.yml` | npm + github-actions | TS/JS projects (package.json at repo root; duplicate the npm entry per workspace for a monorepo). |
+   | `github-actions-only.yml` | github-actions only | Repos with no runtime package manifest — shell-script repos, docs-only repos, config-only repos. (reporulez itself ships this one.) |
+
+   All three use a weekly Monday cadence with an `open-pull-requests-limit` of
+   5 per ecosystem. Edit the file after curling if you need a different cadence,
+   subdirectory, or label set.
+
+   ```sh
+   # Pick the one that matches your repo:
+   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/dependabot/python.yml \
+     -o .github/dependabot.yml
+   ```
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.

@@ -1,0 +1,24 @@
+# dependabot/github-actions-only.yml — weekly action bumps, no runtime deps.
+#
+# Drop this file at .github/dependabot.yml when the repo has no runtime
+# package manifest to bump but still uses GitHub Actions — e.g. a
+# shell-script repo like reporulez itself, a docs-only repo, or a
+# config-only repo.
+#
+# Weekly cadence on Monday, capped at 5 open PRs.
+#
+# Install:
+#   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/dependabot/github-actions-only.yml \
+#     -o .github/dependabot.yml
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
