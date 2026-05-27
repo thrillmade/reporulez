@@ -1,0 +1,34 @@
+name: test
+
+# Reporulez is bash + JSON, no test runner. `test` here lints the
+# shipped shell scripts (`bash -n` per-file syntax check) and
+# json-parses every ruleset/template JSON so a malformed PR breaks
+# loudly here rather than at install time on someone else's repo.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: bash -n on every shipped script
+        run: |
+          set -euo pipefail
+          find bin -type f -name '*.sh' -print0 \
+            | xargs -0 -I{} bash -n {}
+          echo "All bash scripts pass syntax check."
+
+      - name: jq-validate every shipped JSON
+        run: |
+          set -euo pipefail
+          find rulesets templates -type f -name '*.json' -print0 \
+            | xargs -0 -I{} jq -e . {} > /dev/null
+          echo "All shipped JSON parses cleanly."
