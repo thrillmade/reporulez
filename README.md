@@ -28,21 +28,21 @@ loop as well.
 
 ```sh
 # Default: Copilot auto-review enabled, no human approval required (full AI auto-mode).
-curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo
 
 # With a human-in-the-loop approval gate:
-curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo copilot --human-review
 
 # If you already use a non-Copilot AI reviewer (Claude Code Review, CodeRabbit, Cursor, …):
-curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo external
 
 # Full clud-bug + logmind stack (canonical 4 contexts ship in the variant;
 # Repository admin bypass for clud-bug self-mod PRs is ON BY DEFAULT for
 # this variant), plus your project's pytest matrix as extra required checks:
-curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/bin/apply.sh \
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo clud-bug-logmind \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
       --extra-check 'pytest (ubuntu-latest / py3.12)'
@@ -68,10 +68,10 @@ Requires the [`gh`](https://cli.github.com) CLI authenticated against the target
 | Variant | Copilot auto-review | Required status checks | Use when |
 |---|---|---|---|
 | `copilot` (default) | enabled via the `copilot_code_review` ruleset rule | none — add manually after install | You want GitHub's built-in reviewer to comment on every PR. |
-| `external` | not included | none — add manually after install | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmot/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
-| `clud-bug-logmind` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | Canonical bundle for repos with **both** [**clud-bug**](https://github.com/thrillmot/clud-bug) and [**logmind**](https://logmind.dev) installed. Extends `external` with the four well-known check contexts both tools ship + strict-mode so logmind v0.2's derived-file conflict-free property stays sound. |
+| `external` | not included | none — add manually after install | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmade/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
+| `clud-bug-logmind` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | Canonical bundle for repos with **both** [**clud-bug**](https://github.com/thrillmade/clud-bug) and [**logmind**](https://logmind.dev) installed. Extends `external` with the four well-known check contexts both tools ship + strict-mode so logmind v0.2's derived-file conflict-free property stays sound. |
 
-> 💡 Pairs nicely with [**clud-bug**](https://github.com/thrillmot/clud-bug): a one-command (`npx clud-bug init`) install of a Claude PR-review GitHub Action that auto-discovers project-aware review skills from [skills.sh](https://skills.sh) and resolves its own review threads when issues are fixed — which is exactly what the `required_review_thread_resolution` gate in this ruleset is designed to lean on. This repo itself uses clud-bug; see PR #2 / #3 for live review examples.
+> 💡 Pairs nicely with [**clud-bug**](https://github.com/thrillmade/clud-bug): a one-command (`npx clud-bug init`) install of a Claude PR-review GitHub Action that auto-discovers project-aware review skills from [skills.sh](https://skills.sh) and resolves its own review threads when issues are fixed — which is exactly what the `required_review_thread_resolution` gate in this ruleset is designed to lean on. This repo itself uses clud-bug; see PR #2 / #3 for live review examples.
 
 All three variants share the structural rules: PR required, force push and deletion blocked,
 linear history, squash-only merges, dismiss stale reviews, all threads must resolve.
@@ -181,15 +181,15 @@ The script is idempotent — running it twice updates the existing ruleset inste
      Editing the rule manually here will clobber those contexts.
 2. **Drop in templates** if you want:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/templates/CODEOWNERS \
+   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/CODEOWNERS \
      -o .github/CODEOWNERS
-   curl -fsSL https://raw.githubusercontent.com/thrillmot/reporulez/main/templates/pull_request_template.md \
+   curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/pull_request_template.md \
      -o .github/pull_request_template.md
    ```
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.
-   - `clud-bug-logmind` variant: **both** [clud-bug](https://github.com/thrillmot/clud-bug)
+   - `clud-bug-logmind` variant: **both** [clud-bug](https://github.com/thrillmade/clud-bug)
      **and** [logmind](https://logmind.dev) must be installed on the target repo
      (run `npx clud-bug init` and `logmind init --all-agents --install-hook`).
      The shipped `required_status_checks` rule pins four contexts that come from
@@ -208,7 +208,7 @@ logmind init                     # idempotent refresh in v0.2.1+ — rewrites
                                  # docs/ and .logmind/ untouched
 ```
 
-For clud-bug, see [thrillmot/clud-bug](https://github.com/thrillmot/clud-bug)'s
+For clud-bug, see [thrillmade/clud-bug](https://github.com/thrillmade/clud-bug)'s
 README for the current upgrade flow.
 
 ## Hand-import without the script

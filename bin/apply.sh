@@ -36,7 +36,7 @@
 
 set -euo pipefail
 
-RAW_BASE="${REPORULEZ_RAW_BASE:-https://raw.githubusercontent.com/thrillmot/reporulez/main}"
+RAW_BASE="${REPORULEZ_RAW_BASE:-https://raw.githubusercontent.com/thrillmade/reporulez/main}"
 RULESET_NAME="reporulez-default"
 
 die() { echo "error: $*" >&2; exit 1; }
