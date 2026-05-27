@@ -15,6 +15,9 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — doc: swap --all flag order in README examples (clud-bug review) *(feat/audit-sh)* — [decisions-branches/feat__audit-sh.md](decisions-branches/feat__audit-sh.md)
+- **2026-05-27** — audit.sh: drift informational by default + --strict for CI gate + --quiet + arg-parser fix *(feat/audit-sh)* — [decisions-branches/feat__audit-sh.md](decisions-branches/feat__audit-sh.md)
+- **2026-05-27** — feat: bin/audit.sh — read-only drift detector for canonical repo settings *(feat/audit-sh)* — [decisions-branches/feat__audit-sh.md](decisions-branches/feat__audit-sh.md)
 - **2026-05-27** — chore: correct README workaround claims (bot review) + regen docs/file-structure.md without stale Last updated line *(chore/cleanup-readme-and-regen-derived-docs)* — [decisions-branches/chore__cleanup-readme-and-regen-derived-docs.md](decisions-branches/chore__cleanup-readme-and-regen-derived-docs.md)
 - **2026-05-27** — doc: trim re-apply rationale + document ecosystem-switch limitation (clud-bug review) *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)
 - **2026-05-27** — fix(apply.sh + test.yml): reorder PUT-before-ruleset + consolidate traps + add YAML template validation *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)

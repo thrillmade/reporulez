@@ -246,6 +246,45 @@ The script is idempotent — running it twice updates the existing ruleset inste
      those tools' workflows; if either tool is missing, those checks will never
      report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
+## Auditing drift across repos
+
+Once `apply.sh` has run on a repo, its canonical settings (auto-merge,
+squash-only, delete-on-merge, etc.) can still be flipped from the
+GitHub UI or via a direct `gh api PATCH`. `bin/audit.sh` is a
+read-only drift detector that surfaces those flips without touching
+anything:
+
+```sh
+# Audit one or a few repos:
+./bin/audit.sh thrillmade/logmind thrillmade/clud-bug
+
+# Audit every non-archived repo under an org:
+./bin/audit.sh --all thrillmade
+
+# Quieter: only print rows that drifted, hide ✓ matches
+./bin/audit.sh --all thrillmade --quiet
+
+# CI-gate mode: exit 1 when ANY drift detected
+./bin/audit.sh --all thrillmade --strict
+```
+
+Each repo's seven canonical settings (the same ones `apply.sh`
+PATCHes) are checked against the expected values. Output: one ✓ or ✗
+per setting per repo, with a final summary.
+
+**Drift is INFORMATIONAL by default** — the audit always exits 0,
+because repos may legitimately diverge (e.g. a docs repo with
+auto-merge disabled during active editing, or a repo running a
+different merge policy on purpose). The script surfaces divergence;
+the human decides whether each instance is intentional or stale.
+
+Use `--strict` to flip the policy when you do want an enforcement
+gate (e.g. a scheduled CI workflow that fails on any drift).
+
+**Remediation when drift is unintentional**: re-run `apply.sh <repo>
+<variant>` to reset everything to the canonical values. `apply.sh` is
+idempotent, so a re-apply is safe.
+
 ## Upgrading logmind
 
 After bumping the logmind CLI, re-run `logmind init` to refresh the shipped
