@@ -23,8 +23,13 @@
 #                     org-wide drift check.
 #
 # Flags:
-#   --strict          Exit 1 when any drift is detected (default exit 0).
-#   --quiet           Only print drift rows (skip the ✓ matches).
+#   --strict           Exit 1 when any drift is detected (default exit 0).
+#   --quiet            Only print drift rows (skip the ✓ matches).
+#   --include-ruleset  Also check that each repo has active ruleset
+#                      coverage with the structural rule types every
+#                      reporulez variant ships (deletion + non-fast-
+#                      forward + required-linear-history + pull-request).
+#                      Opt-in because it adds 2 API calls per repo.
 #
 # What it checks (everything `apply.sh` sets via `gh api PATCH repos/`):
 #   - allow_auto_merge:        true
@@ -50,9 +55,22 @@ usage() {
   sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
 }
 
-# Defaults — flipped by --strict / --quiet flags below.
+# Defaults — flipped by --strict / --quiet / --include-ruleset flags below.
 STRICT="false"
 QUIET="false"
+INCLUDE_RULESET="false"
+
+# Structural ruleset invariants every reporulez variant ships. A ruleset
+# missing any of these is drift, regardless of variant. (Variant-specific
+# rules — required_status_checks contents, bypass_actors content,
+# copilot_code_review — are intentionally NOT checked here: too variant-
+# specific to flag generically.)
+REQUIRED_RULESET_RULE_TYPES=(
+  deletion
+  non_fast_forward
+  required_linear_history
+  pull_request
+)
 
 # Expected values for each canonical setting. Pairs: KEY EXPECTED.
 # Order matters only for display.
@@ -68,6 +86,52 @@ EXPECTED_SETTINGS=(
 
 # Track drift globally so the exit code reflects it.
 DRIFT_FOUND=0
+
+audit_ruleset() {
+  # Append ruleset-coverage lines to the calling function's `lines` array.
+  # Sets `repo_has_drift=1` (variable in caller's scope) on any drift.
+  local repo="$1"
+  local rulesets_json
+  rulesets_json="$(gh api --paginate "repos/$repo/rulesets" 2>&1)" || {
+    lines+=("$(printf '  ✗ %-32s = could not GET repos/%s/rulesets' "ruleset_listing" "$repo")")
+    repo_has_drift=1
+    return
+  }
+
+  # Find any active ruleset (org-level inherited counts via source_type=Organization).
+  local active_ids
+  active_ids="$(printf '%s' "$rulesets_json" | jq -r '.[] | select(.enforcement == "active") | .id')"
+  if [[ -z "$active_ids" ]]; then
+    lines+=("$(printf '  ✗ %-32s = no active ruleset covers this repo' "ruleset_coverage")")
+    repo_has_drift=1
+    return
+  fi
+  lines+=("$(printf '  ✓ %-32s = found' "ruleset_coverage")")
+
+  # For each active ruleset, fetch its rules and union into a "seen" set.
+  # We pass the union of structural rule types across all active rulesets;
+  # GitHub layers org + repo rulesets, so this matches how enforcement
+  # actually works on the repo.
+  local seen_types=""
+  local rid
+  while IFS= read -r rid; do
+    local detail
+    detail="$(gh api "repos/$repo/rulesets/$rid" 2>&1)" || continue
+    seen_types="$seen_types $(printf '%s' "$detail" | jq -r '.rules[].type' | tr '\n' ' ')"
+  done <<< "$active_ids"
+
+  # Check each required structural rule type. Use word-boundary grep so
+  # `required_linear_history` doesn't false-positive on `linear_history`.
+  local rule
+  for rule in "${REQUIRED_RULESET_RULE_TYPES[@]}"; do
+    if grep -qw -- "$rule" <<< "$seen_types"; then
+      lines+=("$(printf '  ✓ %-32s = rule present' "ruleset.$rule")")
+    else
+      lines+=("$(printf '  ✗ %-32s = rule MISSING from active ruleset(s)' "ruleset.$rule")")
+      repo_has_drift=1
+    fi
+  done
+}
 
 audit_one() {
   local repo="$1"
@@ -102,6 +166,18 @@ audit_one() {
     i=$((i+2))
   done
 
+  # Optional ruleset coverage check (--include-ruleset). audit_ruleset
+  # appends to `lines` and updates `repo_has_drift` directly. It also
+  # propagates drift into the global DRIFT_FOUND so the final exit code
+  # / strict-gate behavior is consistent across both surfaces.
+  if [[ "$INCLUDE_RULESET" == "true" ]]; then
+    local prev_drift=$repo_has_drift
+    audit_ruleset "$repo"
+    if [[ "$repo_has_drift" -gt "$prev_drift" ]]; then
+      DRIFT_FOUND=1
+    fi
+  fi
+
   # In --quiet mode, only print this repo's section if there's drift.
   if [[ "$QUIET" == "true" && "$repo_has_drift" -eq 0 ]]; then
     return
@@ -127,8 +203,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       usage; exit 0 ;;
-    --strict) STRICT="true"; shift ;;
-    --quiet)  QUIET="true";  shift ;;
+    --strict)          STRICT="true";          shift ;;
+    --quiet)           QUIET="true";           shift ;;
+    --include-ruleset) INCLUDE_RULESET="true"; shift ;;
     --all)
       [[ $# -ge 2 ]] || die "--all requires an owner argument (e.g. --all thrillmade)"
       # Guard against `--all --quiet thrillmade`: the next arg must NOT

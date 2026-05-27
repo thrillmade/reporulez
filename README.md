@@ -261,6 +261,10 @@ anything:
 # Audit every non-archived repo under an org:
 ./bin/audit.sh --all thrillmade
 
+# Also check ruleset coverage (org or repo-level rulesets, with the
+# structural rules every reporulez variant ships):
+./bin/audit.sh --all thrillmade --include-ruleset
+
 # Quieter: only print rows that drifted, hide ✓ matches
 ./bin/audit.sh --all thrillmade --quiet
 
@@ -271,6 +275,23 @@ anything:
 Each repo's seven canonical settings (the same ones `apply.sh`
 PATCHes) are checked against the expected values. Output: one ✓ or ✗
 per setting per repo, with a final summary.
+
+**With `--include-ruleset`**, the audit also queries each repo's
+active rulesets (org-level inherited or repo-level) and verifies the
+structural rule types every reporulez variant ships:
+
+- `deletion` rule (no default-branch deletion)
+- `non_fast_forward` rule (no force-push to default)
+- `required_linear_history` rule (squash-only merge history)
+- `pull_request` rule (PRs required for default-branch writes)
+
+Variant-specific bits (`required_status_checks` contents,
+`bypass_actors` content, `copilot_code_review`) are intentionally
+not checked — too variant-specific to flag generically.
+
+**Limitation**: `--all <owner>` uses `GET orgs/<owner>/repos`, which
+404s on personal accounts. Works for any GitHub org. For personal
+accounts, pass explicit positional `<user>/<repo>` arguments.
 
 **Drift is INFORMATIONAL by default** — the audit always exits 0,
 because repos may legitimately diverge (e.g. a docs repo with
