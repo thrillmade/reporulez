@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — chore: correct README workaround claims (bot review) + regen docs/file-structure.md without stale Last updated line *(chore/cleanup-readme-and-regen-derived-docs)* — [decisions-branches/chore__cleanup-readme-and-regen-derived-docs.md](decisions-branches/chore__cleanup-readme-and-regen-derived-docs.md)
 - **2026-05-27** — doc: trim re-apply rationale + document ecosystem-switch limitation (clud-bug review) *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)
 - **2026-05-27** — fix(apply.sh + test.yml): reorder PUT-before-ruleset + consolidate traps + add YAML template validation *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)
 - **2026-05-27** — chore: add test.yml — bash -n + jq-validate every shipped script/JSON *(chore/add-test-workflow)* — [decisions-branches/chore__add-test-workflow.md](decisions-branches/chore__add-test-workflow.md)

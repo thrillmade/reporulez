@@ -223,13 +223,19 @@ The script is idempotent — running it twice updates the existing ruleset inste
    > only): switching the `--with-dependabot=<eco>` value on a repo
    > that already has the ruleset applied will fail the contents PUT
    > because the existing ruleset's `pull_request` rule blocks direct
-   > default-branch writes. Workaround: either (a) delete the existing
-   > `.github/dependabot.yml` in the target repo via the UI before
-   > re-applying, or (b) pass `--bypass-admin` so the admin role can
-   > write through the rule. The `clud-bug-logmind` variant has admin
-   > bypass enabled by default, so the limitation doesn't apply there.
-   > First-apply (no existing ruleset) and idempotent re-apply (same
-   > template) both work across all variants without intervention.
+   > default-branch writes. The `--bypass-admin` flag does **not** help
+   > here — it only mutates the in-memory ruleset JSON that step 3
+   > applies; it does not patch the existing ruleset that step 2's
+   > PUT runs against. The actual prerequisite is that the target
+   > repo's *existing* ruleset already contains Repository admin in
+   > `bypass_actors`. For `clud-bug-logmind` that's the variant
+   > default, so first-time AND ecosystem-switching applies both
+   > work. For `copilot`/`external`, only first-apply and idempotent
+   > re-apply work without manual intervention; ecosystem-switching
+   > requires either temporarily editing the existing ruleset on
+   > GitHub (Settings → Rules → Rulesets → `reporulez-default` →
+   > add Repository admin to `Bypass list`) or temporarily deleting
+   > the existing ruleset before re-applying.
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.
