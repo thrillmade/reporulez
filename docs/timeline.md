@@ -15,6 +15,8 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — chore: actually bump workflow pins to 0.3.3 (missed in prior commit) *(chore/bump-logmind-pin-0.3.3)* — [decisions-branches/chore__bump-logmind-pin-0.3.3.md](decisions-branches/chore__bump-logmind-pin-0.3.3.md)
+- **2026-05-27** — chore: bump logmind pin 0.2.1 → 0.3.3 *(chore/bump-logmind-pin-0.3.3)* — [decisions-branches/chore__bump-logmind-pin-0.3.3.md](decisions-branches/chore__bump-logmind-pin-0.3.3.md)
 - **2026-05-27** — Ship per-ecosystem dependabot templates; dogfood github-actions-only on reporulez *(feat/dependabot-templates)* — [decisions-branches/feat__dependabot-templates.md](decisions-branches/feat__dependabot-templates.md)
 - **2026-05-26** — chore: migrate to thrillmade org *(chore/migrate-to-thrillmade)* — [decisions-branches/chore__migrate-to-thrillmade.md](decisions-branches/chore__migrate-to-thrillmade.md)
 - **2026-05-26** — Reinit clud-bug install at v0.5.15 (recovery from pre-marker install) *(chore/reinit-clud-bug-at-v0.5.15)* — [decisions-branches/chore__reinit-clud-bug-at-v0.5.15.md](decisions-branches/chore__reinit-clud-bug-at-v0.5.15.md)
