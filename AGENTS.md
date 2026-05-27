@@ -91,7 +91,7 @@ After cloning, contributors should:
 
 1. **Install logmind** locally (CLI tool used to log decisions):
    ```bash
-   pipx install logmind   # or: brew install thrillmot/logmind/logmind
+   pipx install logmind   # or: brew install thrillmade/logmind/logmind
    logmind install-hook   # .git/hooks/pre-commit
    ```
    The same enforcement runs on every PR via `.github/workflows/check-decisions.yml`
@@ -150,7 +150,7 @@ small baseline kit ships with every install — see
 
 Anthropic's `claude-code-action` refuses to run on PRs that modify its own
 workflow file. Use `clud-bug edit-workflow` to bundle workflow tweaks into
-their own isolated PR — see [README](https://github.com/thrillmot/clud-bug#when-you-edit-the-workflow).
+their own isolated PR — see [README](https://github.com/thrillmade/clud-bug#when-you-edit-the-workflow).
 
 _Installed at clud-bug v0.5.15._
 <!-- clud-bug-end -->
