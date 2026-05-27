@@ -218,6 +218,18 @@ The script is idempotent — running it twice updates the existing ruleset inste
    already current. Silently overwrites a different existing
    `.github/dependabot.yml` (consistent with how `--extra-check` and the
    other flags overwrite the ruleset on re-apply).
+
+   > **Known limitation** (ecosystem switch on re-apply, copilot/external
+   > only): switching the `--with-dependabot=<eco>` value on a repo
+   > that already has the ruleset applied will fail the contents PUT
+   > because the existing ruleset's `pull_request` rule blocks direct
+   > default-branch writes. Workaround: either (a) delete the existing
+   > `.github/dependabot.yml` in the target repo via the UI before
+   > re-applying, or (b) pass `--bypass-admin` so the admin role can
+   > write through the rule. The `clud-bug-logmind` variant has admin
+   > bypass enabled by default, so the limitation doesn't apply there.
+   > First-apply (no existing ruleset) and idempotent re-apply (same
+   > template) both work across all variants without intervention.
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.

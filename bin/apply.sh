@@ -189,7 +189,17 @@ if [[ ${#EXTRA_CHECKS[@]} -gt 0 ]]; then
   done
 fi
 
-# 1. Tune repo-level settings that rulesets cannot control.
+# Single temp-file registry + cleanup trap. Tracks every tempfile we
+# create so a single EXIT trap reliably removes them all. Each step
+# appends to CLEANUP_FILES before / after mktemp, never registering a
+# fresh trap (the prior multi-trap pattern silently shadowed the
+# earlier trap on re-set).
+CLEANUP_FILES=()
+cleanup() { [[ ${#CLEANUP_FILES[@]} -gt 0 ]] && rm -f "${CLEANUP_FILES[@]}" || true; }
+trap cleanup EXIT
+
+# 1. Tune repo-level settings that rulesets cannot control. Step 1 is
+#    safe at any point — it doesn't write to the default branch.
 info "Configuring repo settings on $REPO (auto-merge, squash-only, delete-on-merge)"
 gh api --method PATCH "repos/$REPO" --silent \
   -F allow_auto_merge=true \
@@ -201,34 +211,30 @@ gh api --method PATCH "repos/$REPO" --silent \
   -f squash_merge_commit_message=PR_BODY \
   || die "failed to PATCH repo settings on $REPO (free private repos can't auto-merge or delete-on-merge — make the repo public or upgrade to GitHub Pro)"
 
-# 2. Apply ruleset. If one with the same name exists, PATCH it. Otherwise POST.
-RULESETS_JSON="$(gh api --paginate "repos/$REPO/rulesets")" \
-  || die "failed to list existing rulesets on $REPO"
-EXISTING_ID="$(echo "$RULESETS_JSON" \
-  | jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' \
-  | head -n1)"
-
-TMP_JSON="$(mktemp)"
-trap 'rm -f "$TMP_JSON"' EXIT
-echo "$RULESET_JSON" > "$TMP_JSON"
-
-if [[ -n "$EXISTING_ID" ]]; then
-  info "Updating existing ruleset id=$EXISTING_ID"
-  gh api --method PUT "repos/$REPO/rulesets/$EXISTING_ID" --input "$TMP_JSON" --silent \
-    || die "failed to update ruleset $EXISTING_ID on $REPO"
-else
-  info "Creating new ruleset"
-  gh api --method POST "repos/$REPO/rulesets" --input "$TMP_JSON" --silent \
-    || die "failed to create ruleset on $REPO (rulesets require a public repo or GitHub Pro for private repos)"
-fi
-
-# 3. If --with-dependabot was passed, write the matching template to the
-#    target repo's .github/dependabot.yml. Uses the contents API directly
-#    (no clone) so this works against any owner/repo the caller has push
-#    access to. Idempotent: a re-run with the same flag does not produce
-#    a new commit when the file is already current. Silently overwrites
-#    an existing-but-different dependabot.yml (consistent with how the
-#    ruleset step overwrites the ruleset on re-apply).
+# 2. If --with-dependabot was passed, write the matching template to the
+#    target repo's .github/dependabot.yml VIA THE CONTENTS API.
+#
+#    Step ORDER matters for the common case: this runs BEFORE the
+#    ruleset is applied (step 3) so the contents PUT doesn't bump into
+#    the ruleset's pull_request rule on a FIRST apply (when no
+#    ruleset exists yet). The clud-bug-logmind variant ships an admin
+#    bypass that papers over this anyway, but copilot/external variants
+#    default `bypass_actors: []` and would otherwise reject this write
+#    once the ruleset is in force.
+#
+#    Idempotency property holds: re-running apply.sh with the same
+#    flag does not produce a new commit when the file is already
+#    current (GET-base64-compare-skip).
+#
+#    KNOWN LIMITATION (ecosystem switch on re-apply, copilot/external
+#    only): if the target repo already has the ruleset AND the caller
+#    passes a different --with-dependabot value than was last applied,
+#    the PUT executes against a still-protected branch and dies. The
+#    workaround is either (a) delete the existing dependabot.yml in
+#    the target repo via the GitHub UI before re-applying, or (b)
+#    re-apply with --bypass-admin so the admin role can write through
+#    the rule. Most repos commit to one dependabot ecosystem and never
+#    switch, so this surface is narrow — documented in the README.
 if [[ -n "$WITH_DEPENDABOT" ]]; then
   TEMPLATE_LOCAL="$SCRIPT_DIR/../templates/dependabot/${WITH_DEPENDABOT}.yml"
   # Base64 directly from the source bytes — never go through a `$(...)`
@@ -261,7 +267,7 @@ if [[ -n "$WITH_DEPENDABOT" ]]; then
     info "Target .github/dependabot.yml already matches template '$WITH_DEPENDABOT' — skipping (idempotent)"
   else
     PUT_INPUT="$(mktemp)"
-    trap 'rm -f "$TMP_JSON" "$PUT_INPUT"' EXIT
+    CLEANUP_FILES+=("$PUT_INPUT")
     MSG="chore: dependabot config from reporulez (ecosystem=${WITH_DEPENDABOT})"
     if [[ -n "$EXISTING_SHA" ]]; then
       jq -n --arg msg "$MSG" --arg c "$TEMPLATE_B64" --arg s "$EXISTING_SHA" \
@@ -275,6 +281,27 @@ if [[ -n "$WITH_DEPENDABOT" ]]; then
     gh api --method PUT "repos/$REPO/contents/.github/dependabot.yml" --input "$PUT_INPUT" --silent \
       || die "failed to PUT .github/dependabot.yml on $REPO"
   fi
+fi
+
+# 3. Apply ruleset. If one with the same name exists, PATCH it. Otherwise POST.
+RULESETS_JSON="$(gh api --paginate "repos/$REPO/rulesets")" \
+  || die "failed to list existing rulesets on $REPO"
+EXISTING_ID="$(echo "$RULESETS_JSON" \
+  | jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' \
+  | head -n1)"
+
+TMP_JSON="$(mktemp)"
+CLEANUP_FILES+=("$TMP_JSON")
+echo "$RULESET_JSON" > "$TMP_JSON"
+
+if [[ -n "$EXISTING_ID" ]]; then
+  info "Updating existing ruleset id=$EXISTING_ID"
+  gh api --method PUT "repos/$REPO/rulesets/$EXISTING_ID" --input "$TMP_JSON" --silent \
+    || die "failed to update ruleset $EXISTING_ID on $REPO"
+else
+  info "Creating new ruleset"
+  gh api --method POST "repos/$REPO/rulesets" --input "$TMP_JSON" --silent \
+    || die "failed to create ruleset on $REPO (rulesets require a public repo or GitHub Pro for private repos)"
 fi
 
 # 4. Follow-up checklist (cannot be done safely or automatically).

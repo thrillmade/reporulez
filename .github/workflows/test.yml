@@ -1,9 +1,11 @@
 name: test
 
-# Reporulez is bash + JSON, no test runner. `test` here lints the
-# shipped shell scripts (`bash -n` per-file syntax check) and
-# json-parses every ruleset/template JSON so a malformed PR breaks
-# loudly here rather than at install time on someone else's repo.
+# Reporulez is bash + JSON + YAML, no test runner. `test` here lints
+# every shipped artifact so a malformed PR breaks loudly here rather
+# than at install time on someone else's repo:
+#   - `bash -n` per-file syntax check on bin/*.sh
+#   - jq-parse every ruleset/template JSON
+#   - yaml-parse every dependabot template YAML
 
 on:
   pull_request:
@@ -32,3 +34,15 @@ jobs:
           find rulesets templates -type f -name '*.json' -print0 \
             | xargs -0 -I{} jq -e . {} > /dev/null
           echo "All shipped JSON parses cleanly."
+
+      - name: yaml-validate every shipped YAML template
+        # Catches malformed dependabot templates (and any future *.yml
+        # under templates/) before they ship. Python is preinstalled
+        # on ubuntu-latest with PyYAML available via pip; we install
+        # if missing rather than depending on system state.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyyaml
+          find templates -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 \
+            | xargs -0 -I{} python3 -c "import sys, yaml; yaml.safe_load(open(sys.argv[1])); print(f'  {sys.argv[1]}: OK')" {}
+          echo "All shipped YAML templates parse cleanly."
