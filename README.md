@@ -260,14 +260,28 @@ anything:
 
 # Audit every non-archived repo under an org:
 ./bin/audit.sh --all thrillmade
+
+# Quieter: only print rows that drifted, hide ✓ matches
+./bin/audit.sh --all --quiet thrillmade
+
+# CI-gate mode: exit 1 when ANY drift detected
+./bin/audit.sh --all --strict thrillmade
 ```
 
-Each repo's seven canonical settings (the same ones `apply.sh` PATCHes)
-are checked against the expected values. Output: one ✓ or ✗ per
-setting per repo, with a final summary. Exit code 0 if no drift, 1 if
-any drift detected — suitable for a scheduled CI gate.
+Each repo's seven canonical settings (the same ones `apply.sh`
+PATCHes) are checked against the expected values. Output: one ✓ or ✗
+per setting per repo, with a final summary.
 
-**Remediation**: drift on any setting → re-run `apply.sh <repo>
+**Drift is INFORMATIONAL by default** — the audit always exits 0,
+because repos may legitimately diverge (e.g. a docs repo with
+auto-merge disabled during active editing, or a repo running a
+different merge policy on purpose). The script surfaces divergence;
+the human decides whether each instance is intentional or stale.
+
+Use `--strict` to flip the policy when you do want an enforcement
+gate (e.g. a scheduled CI workflow that fails on any drift).
+
+**Remediation when drift is unintentional**: re-run `apply.sh <repo>
 <variant>` to reset everything to the canonical values. `apply.sh` is
 idempotent, so a re-apply is safe.
 

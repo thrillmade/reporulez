@@ -8,3 +8,11 @@
 - Could ship a weekly scheduled workflow that runs audit.sh --all thrillmade and opens an issue on drift. Out of scope for v1 of audit.sh; one-line follow-up if useful
 
 ---
+## 2026-05-27 16:09 - audit.sh: drift informational by default + --strict for CI gate + --quiet + arg-parser fix
+
+**Reasoning:** Arg-parser bug caught while testing: --all --quiet thrillmade silently swallowed --quiet as the owner name. Added a guard rejecting flag-starting values for --all's owner arg
+
+**Implications:**
+- Output format is now intentionally honest — 'ℹ drift detected, INFORMATIONAL' rather than 'EVERYTHING IS BROKEN'. Future v0.4.1 of audit could add a .reporulez/audit.yml per-repo override file if the bench of intentional drifts grows
+
+---
