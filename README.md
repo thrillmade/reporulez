@@ -262,10 +262,10 @@ anything:
 ./bin/audit.sh --all thrillmade
 
 # Quieter: only print rows that drifted, hide ✓ matches
-./bin/audit.sh --all --quiet thrillmade
+./bin/audit.sh --all thrillmade --quiet
 
 # CI-gate mode: exit 1 when ANY drift detected
-./bin/audit.sh --all --strict thrillmade
+./bin/audit.sh --all thrillmade --strict
 ```
 
 Each repo's seven canonical settings (the same ones `apply.sh`

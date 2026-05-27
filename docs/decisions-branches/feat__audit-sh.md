@@ -16,3 +16,11 @@
 - Output format is now intentionally honest — 'ℹ drift detected, INFORMATIONAL' rather than 'EVERYTHING IS BROKEN'. Future v0.4.1 of audit could add a .reporulez/audit.yml per-repo override file if the bench of intentional drifts grows
 
 ---
+## 2026-05-27 16:13 - doc: swap --all flag order in README examples (clud-bug review)
+
+**Reasoning:** Fix: swap to 'audit.sh --all thrillmade --quiet' — flag-after-owner. Now consistent with the guard's actual contract
+
+**Implications:**
+- Pattern note: when adding an arg-parser guard, grep the README + tests for the rejected form before shipping
+
+---
