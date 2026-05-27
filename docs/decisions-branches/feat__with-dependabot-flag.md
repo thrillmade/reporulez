@@ -9,3 +9,11 @@
 - Help block now spans lines 2-44 (was 2-35); usage() updated to match
 
 ---
+## 2026-05-27 07:38 - fix(apply.sh): base64 directly from source, preserve trailing newline (clud-bug critical)
+
+**Reasoning:** Fix: read bytes straight into base64 via 'base64 < file' (local) or 'curl … | base64' (remote). Never touch the bytes through a $(...)-captured shell variable
+
+**Implications:**
+- Verifies the idempotency property the PR's own spec promised
+
+---

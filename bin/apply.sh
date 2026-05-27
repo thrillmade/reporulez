@@ -231,16 +231,23 @@ fi
 #    ruleset step overwrites the ruleset on re-apply).
 if [[ -n "$WITH_DEPENDABOT" ]]; then
   TEMPLATE_LOCAL="$SCRIPT_DIR/../templates/dependabot/${WITH_DEPENDABOT}.yml"
+  # Base64 directly from the source bytes — never go through a `$(...)`
+  # command substitution into a shell variable, because bash strips ALL
+  # trailing newlines from `$(...)` output. The templates end in `\n`
+  # (POSIX text-file convention); without the byte-exact trailing
+  # newline the base64 wouldn't match GitHub's stored copy, the
+  # idempotency comparison below would never short-circuit, and every
+  # re-run would create a needless commit. Pipe-to-base64 preserves
+  # the trailing newline.
   if [[ -f "$TEMPLATE_LOCAL" ]]; then
-    TEMPLATE_CONTENT="$(cat "$TEMPLATE_LOCAL")"
     info "Using local dependabot template: $TEMPLATE_LOCAL"
+    TEMPLATE_B64="$(base64 < "$TEMPLATE_LOCAL" | tr -d '\n')"
   else
     TEMPLATE_URL="$RAW_BASE/templates/dependabot/${WITH_DEPENDABOT}.yml"
     info "Fetching dependabot template: $TEMPLATE_URL"
-    TEMPLATE_CONTENT="$(curl -fsSL "$TEMPLATE_URL")" \
+    TEMPLATE_B64="$(curl -fsSL "$TEMPLATE_URL" | base64 | tr -d '\n')" \
       || die "failed to fetch $TEMPLATE_URL"
   fi
-  TEMPLATE_B64="$(printf '%s' "$TEMPLATE_CONTENT" | base64 | tr -d '\n')"
 
   # Check whether the target file already exists. The contents API returns
   # 404 when the path is absent (handled below as "create" — sha omitted).
