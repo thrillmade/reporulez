@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — doc: trim re-apply rationale + document ecosystem-switch limitation (clud-bug review) *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)
 - **2026-05-27** — fix(apply.sh + test.yml): reorder PUT-before-ruleset + consolidate traps + add YAML template validation *(fix/with-dependabot-step-order-plus-tests)* — [decisions-branches/fix__with-dependabot-step-order-plus-tests.md](decisions-branches/fix__with-dependabot-step-order-plus-tests.md)
 - **2026-05-27** — chore: add test.yml — bash -n + jq-validate every shipped script/JSON *(chore/add-test-workflow)* — [decisions-branches/chore__add-test-workflow.md](decisions-branches/chore__add-test-workflow.md)
 - **2026-05-27** — fix(apply.sh): base64 directly from source, preserve trailing newline (clud-bug critical) *(feat/with-dependabot-flag)* — [decisions-branches/feat__with-dependabot-flag.md](decisions-branches/feat__with-dependabot-flag.md)

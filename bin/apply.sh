@@ -214,21 +214,27 @@ gh api --method PATCH "repos/$REPO" --silent \
 # 2. If --with-dependabot was passed, write the matching template to the
 #    target repo's .github/dependabot.yml VIA THE CONTENTS API.
 #
-#    Step ORDER matters: this runs BEFORE the ruleset is applied (step 3)
-#    so the contents PUT doesn't bump into the ruleset's pull_request
-#    rule (which would require routing direct default-branch writes
-#    through a PR). The clud-bug-logmind variant ships an admin bypass
-#    that papers over this, but copilot/external variants default
-#    `bypass_actors: []` and would otherwise reject this write outright
-#    once the ruleset is in force. Putting the PUT first sidesteps the
-#    rule entirely — at the moment of the PUT there IS no ruleset on
-#    this repo yet (or the existing one is about to be replaced).
+#    Step ORDER matters for the common case: this runs BEFORE the
+#    ruleset is applied (step 3) so the contents PUT doesn't bump into
+#    the ruleset's pull_request rule on a FIRST apply (when no
+#    ruleset exists yet). The clud-bug-logmind variant ships an admin
+#    bypass that papers over this anyway, but copilot/external variants
+#    default `bypass_actors: []` and would otherwise reject this write
+#    once the ruleset is in force.
 #
 #    Idempotency property holds: re-running apply.sh with the same
 #    flag does not produce a new commit when the file is already
-#    current (GET-base64-compare-skip). Silently overwrites an
-#    existing-but-different .github/dependabot.yml (consistent with
-#    how step 3 overwrites the ruleset on re-apply).
+#    current (GET-base64-compare-skip).
+#
+#    KNOWN LIMITATION (ecosystem switch on re-apply, copilot/external
+#    only): if the target repo already has the ruleset AND the caller
+#    passes a different --with-dependabot value than was last applied,
+#    the PUT executes against a still-protected branch and dies. The
+#    workaround is either (a) delete the existing dependabot.yml in
+#    the target repo via the GitHub UI before re-applying, or (b)
+#    re-apply with --bypass-admin so the admin role can write through
+#    the rule. Most repos commit to one dependabot ecosystem and never
+#    switch, so this surface is narrow — documented in the README.
 if [[ -n "$WITH_DEPENDABOT" ]]; then
   TEMPLATE_LOCAL="$SCRIPT_DIR/../templates/dependabot/${WITH_DEPENDABOT}.yml"
   # Base64 directly from the source bytes — never go through a `$(...)`
