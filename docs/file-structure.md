@@ -45,6 +45,7 @@ reporulez
 │   │   ├── chore__cleanup-readme-and-regen-derived-docs.md
 │   │   ├── chore__migrate-to-thrillmade.md
 │   │   ├── chore__reinit-clud-bug-at-v0.5.15.md
+│   │   ├── feat__audit-include-ruleset.md
 │   │   ├── feat__audit-sh.md
 │   │   ├── feat__clud-bug-logmind-bypass-default.md
 │   │   ├── feat__dependabot-templates.md

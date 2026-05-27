@@ -89,12 +89,20 @@ DRIFT_FOUND=0
 
 audit_ruleset() {
   # Append ruleset-coverage lines to the calling function's `lines` array.
-  # Sets `repo_has_drift=1` (variable in caller's scope) on any drift.
+  # Sets `repo_has_drift=1` (caller-scope variable) AND DRIFT_FOUND=1
+  # (global) on any drift — same direct-set pattern as the settings audit
+  # so the propagation logic is uniform.
   local repo="$1"
   local rulesets_json
-  rulesets_json="$(gh api --paginate "repos/$repo/rulesets" 2>&1)" || {
+
+  # `?includes_parents=true` is the documented-stable way to get org-level
+  # inherited rulesets alongside repo-level ones. GitHub's API default
+  # happens to be the same today, but the param removes any ambiguity
+  # and protects against a future default flip.
+  rulesets_json="$(gh api --paginate "repos/$repo/rulesets?includes_parents=true" 2>&1)" || {
     lines+=("$(printf '  ✗ %-32s = could not GET repos/%s/rulesets' "ruleset_listing" "$repo")")
     repo_has_drift=1
+    DRIFT_FOUND=1
     return
   }
 
@@ -104,24 +112,44 @@ audit_ruleset() {
   if [[ -z "$active_ids" ]]; then
     lines+=("$(printf '  ✗ %-32s = no active ruleset covers this repo' "ruleset_coverage")")
     repo_has_drift=1
+    DRIFT_FOUND=1
     return
   fi
   lines+=("$(printf '  ✓ %-32s = found' "ruleset_coverage")")
 
   # For each active ruleset, fetch its rules and union into a "seen" set.
-  # We pass the union of structural rule types across all active rulesets;
-  # GitHub layers org + repo rulesets, so this matches how enforcement
-  # actually works on the repo.
+  # GitHub layers org + repo rulesets, so the union matches how
+  # enforcement actually works on the repo.
+  #
+  # If any per-ruleset detail GET fails (transient 5xx, rate-limit, perm
+  # edge case), we report it as drift loudly rather than silently
+  # continuing — silent continue would produce false "rule MISSING"
+  # rows downstream that look like real drift but are actually an
+  # incomplete enumeration.
   local seen_types=""
   local rid
+  local fetch_failures=()
   while IFS= read -r rid; do
     local detail
-    detail="$(gh api "repos/$repo/rulesets/$rid" 2>&1)" || continue
+    if ! detail="$(gh api "repos/$repo/rulesets/$rid" 2>&1)"; then
+      fetch_failures+=("$rid")
+      continue
+    fi
     seen_types="$seen_types $(printf '%s' "$detail" | jq -r '.rules[].type' | tr '\n' ' ')"
   done <<< "$active_ids"
 
-  # Check each required structural rule type. Use word-boundary grep so
-  # `required_linear_history` doesn't false-positive on `linear_history`.
+  if [[ ${#fetch_failures[@]} -gt 0 ]]; then
+    lines+=("$(printf '  ✗ %-32s = could not GET detail for ruleset id(s): %s' "ruleset_detail_fetch" "${fetch_failures[*]}")")
+    repo_has_drift=1
+    DRIFT_FOUND=1
+    # Don't `return` — we still want to report which rules WERE confirmed
+    # present from the rulesets we DID fetch. The failed-fetch row above
+    # tells the reader why the downstream rows may be incomplete.
+  fi
+
+  # Check each required structural rule type. -w (word-boundary) is
+  # defense-in-depth against future rule-type renames; today's set is
+  # unambiguous.
   local rule
   for rule in "${REQUIRED_RULESET_RULE_TYPES[@]}"; do
     if grep -qw -- "$rule" <<< "$seen_types"; then
@@ -129,6 +157,7 @@ audit_ruleset() {
     else
       lines+=("$(printf '  ✗ %-32s = rule MISSING from active ruleset(s)' "ruleset.$rule")")
       repo_has_drift=1
+      DRIFT_FOUND=1
     fi
   done
 }
@@ -167,15 +196,11 @@ audit_one() {
   done
 
   # Optional ruleset coverage check (--include-ruleset). audit_ruleset
-  # appends to `lines` and updates `repo_has_drift` directly. It also
-  # propagates drift into the global DRIFT_FOUND so the final exit code
-  # / strict-gate behavior is consistent across both surfaces.
+  # mirrors the settings-audit pattern: appends to `lines`, sets
+  # repo_has_drift + DRIFT_FOUND directly on any drift. No caller-side
+  # propagation needed.
   if [[ "$INCLUDE_RULESET" == "true" ]]; then
-    local prev_drift=$repo_has_drift
     audit_ruleset "$repo"
-    if [[ "$repo_has_drift" -gt "$prev_drift" ]]; then
-      DRIFT_FOUND=1
-    fi
   fi
 
   # In --quiet mode, only print this repo's section if there's drift.

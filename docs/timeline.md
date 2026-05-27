@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — fix(audit.sh): explicit includes_parents=true + loud-fail on per-ruleset GET + simplified drift propagation *(fix/audit-ruleset-correctness)* — [decisions-branches/fix__audit-ruleset-correctness.md](decisions-branches/fix__audit-ruleset-correctness.md)
 - **2026-05-27** — feat(audit.sh): --include-ruleset flag for ruleset structural drift *(feat/audit-include-ruleset)* — [decisions-branches/feat__audit-include-ruleset.md](decisions-branches/feat__audit-include-ruleset.md)
 - **2026-05-27** — doc: swap --all flag order in README examples (clud-bug review) *(feat/audit-sh)* — [decisions-branches/feat__audit-sh.md](decisions-branches/feat__audit-sh.md)
 - **2026-05-27** — audit.sh: drift informational by default + --strict for CI gate + --quiet + arg-parser fix *(feat/audit-sh)* — [decisions-branches/feat__audit-sh.md](decisions-branches/feat__audit-sh.md)
