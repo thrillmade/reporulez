@@ -206,6 +206,18 @@ The script is idempotent — running it twice updates the existing ruleset inste
    curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/templates/dependabot/python.yml \
      -o .github/dependabot.yml
    ```
+
+   Or skip the curl: `apply.sh` will write the chosen template directly to the
+   target repo if you pass `--with-dependabot=<ecosystem>` on the same invocation:
+
+   ```sh
+   ./bin/apply.sh owner/repo clud-bug-logmind --with-dependabot=python
+   ```
+
+   Idempotent — re-running with the same flag is a no-op when the file is
+   already current. Silently overwrites a different existing
+   `.github/dependabot.yml` (consistent with how `--extra-check` and the
+   other flags overwrite the ruleset on re-apply).
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.

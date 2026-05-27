@@ -4,7 +4,8 @@
 # Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] \
 #                              [--human-review] \
 #                              [--bypass-admin | --no-bypass-admin] \
-#                              [--extra-check 'CONTEXT NAME']...
+#                              [--extra-check 'CONTEXT NAME']... \
+#                              [--with-dependabot=<ecosystem>]
 #
 # Defaults: copilot variant, no human review required (AI auto-mode). Bypass
 # actors default OFF for copilot/external and ON for clud-bug-logmind (its
@@ -33,6 +34,16 @@
 # without forking the variant JSON. Requires the chosen variant to ship a
 # required_status_checks rule — works with clud-bug-logmind; errors out cleanly
 # on copilot/external (which deliberately don't ship that rule).
+#
+# --with-dependabot=<ecosystem> writes the matching templates/dependabot/<eco>.yml
+# template to the target repo's .github/dependabot.yml in the same apply.sh call.
+# Replaces the prior two-step install (apply.sh then a separate curl). Allowed
+# values: python, typescript, github-actions-only. Idempotent — re-running
+# with the same flag does NOT create a duplicate commit when the file is
+# already current. Silently overwrites any existing dependabot.yml at the
+# target path (consistent with how other flags overwrite the ruleset on
+# re-apply). Omit the flag to keep the prior behaviour (no .github/dependabot.yml
+# touched). Templates land at templates/dependabot/ via reporulez PR #15.
 
 set -euo pipefail
 
@@ -44,7 +55,18 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,35p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,44p' "$0" | sed 's/^# //; s/^#//'
+}
+
+# Whitelist for --with-dependabot. Used both for input validation and to
+# build the human-readable error message when an unknown value is passed.
+VALID_DEPENDABOT_ECOSYSTEMS=(python typescript github-actions-only)
+is_valid_dependabot_eco() {
+  local v
+  for v in "${VALID_DEPENDABOT_ECOSYSTEMS[@]}"; do
+    [[ "$v" == "$1" ]] && return 0
+  done
+  return 1
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
@@ -55,6 +77,7 @@ VARIANT="copilot"
 HUMAN_REVIEW="false"
 BYPASS_ADMIN=""  # sentinel: empty = use per-variant default; "true"/"false" = explicit
 EXTRA_CHECKS=()  # parallel array of context names; preserves order
+WITH_DEPENDABOT=""  # empty = skip the dependabot.yml step (default); otherwise the ecosystem slug
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -67,10 +90,23 @@ while [[ $# -gt 0 ]]; do
       EXTRA_CHECKS+=("$2"); shift 2 ;;
     --extra-check=*)
       EXTRA_CHECKS+=("${1#--extra-check=}"); shift ;;
+    --with-dependabot)
+      [[ $# -ge 2 ]] || die "--with-dependabot requires an ecosystem (one of: ${VALID_DEPENDABOT_ECOSYSTEMS[*]})"
+      WITH_DEPENDABOT="$2"; shift 2 ;;
+    --with-dependabot=*)
+      WITH_DEPENDABOT="${1#--with-dependabot=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
+
+# Validate --with-dependabot against the whitelist before any network call,
+# so a typo (e.g. --with-dependabot=ruby) fails fast instead of after the
+# ruleset PATCH succeeds and only the file-write step explodes mid-apply.
+if [[ -n "$WITH_DEPENDABOT" ]]; then
+  is_valid_dependabot_eco "$WITH_DEPENDABOT" \
+    || die "--with-dependabot value '$WITH_DEPENDABOT' is not a known ecosystem. Valid values: ${VALID_DEPENDABOT_ECOSYSTEMS[*]}"
+fi
 
 # Per-variant default for BYPASS_ADMIN when caller didn't pass the flag.
 # clud-bug-logmind defaults ON because the variant's self-mod use case
@@ -186,10 +222,65 @@ else
     || die "failed to create ruleset on $REPO (rulesets require a public repo or GitHub Pro for private repos)"
 fi
 
-# 3. Follow-up checklist (cannot be done safely or automatically).
+# 3. If --with-dependabot was passed, write the matching template to the
+#    target repo's .github/dependabot.yml. Uses the contents API directly
+#    (no clone) so this works against any owner/repo the caller has push
+#    access to. Idempotent: a re-run with the same flag does not produce
+#    a new commit when the file is already current. Silently overwrites
+#    an existing-but-different dependabot.yml (consistent with how the
+#    ruleset step overwrites the ruleset on re-apply).
+if [[ -n "$WITH_DEPENDABOT" ]]; then
+  TEMPLATE_LOCAL="$SCRIPT_DIR/../templates/dependabot/${WITH_DEPENDABOT}.yml"
+  # Base64 directly from the source bytes — never go through a `$(...)`
+  # command substitution into a shell variable, because bash strips ALL
+  # trailing newlines from `$(...)` output. The templates end in `\n`
+  # (POSIX text-file convention); without the byte-exact trailing
+  # newline the base64 wouldn't match GitHub's stored copy, the
+  # idempotency comparison below would never short-circuit, and every
+  # re-run would create a needless commit. Pipe-to-base64 preserves
+  # the trailing newline.
+  if [[ -f "$TEMPLATE_LOCAL" ]]; then
+    info "Using local dependabot template: $TEMPLATE_LOCAL"
+    TEMPLATE_B64="$(base64 < "$TEMPLATE_LOCAL" | tr -d '\n')"
+  else
+    TEMPLATE_URL="$RAW_BASE/templates/dependabot/${WITH_DEPENDABOT}.yml"
+    info "Fetching dependabot template: $TEMPLATE_URL"
+    TEMPLATE_B64="$(curl -fsSL "$TEMPLATE_URL" | base64 | tr -d '\n')" \
+      || die "failed to fetch $TEMPLATE_URL"
+  fi
+
+  # Check whether the target file already exists. The contents API returns
+  # 404 when the path is absent (handled below as "create" — sha omitted).
+  # `gh api ... || true` swallows the nonzero exit so we can branch on the
+  # response body rather than the exit code.
+  CONTENTS_GET="$(gh api "repos/$REPO/contents/.github/dependabot.yml" 2>/dev/null || true)"
+  EXISTING_SHA="$(echo "$CONTENTS_GET" | jq -r '.sha // empty')"
+  EXISTING_B64="$(echo "$CONTENTS_GET" | jq -r '.content // empty' | tr -d '\n')"
+
+  if [[ -n "$EXISTING_SHA" ]] && [[ "$EXISTING_B64" == "$TEMPLATE_B64" ]]; then
+    info "Target .github/dependabot.yml already matches template '$WITH_DEPENDABOT' — skipping (idempotent)"
+  else
+    PUT_INPUT="$(mktemp)"
+    trap 'rm -f "$TMP_JSON" "$PUT_INPUT"' EXIT
+    MSG="chore: dependabot config from reporulez (ecosystem=${WITH_DEPENDABOT})"
+    if [[ -n "$EXISTING_SHA" ]]; then
+      jq -n --arg msg "$MSG" --arg c "$TEMPLATE_B64" --arg s "$EXISTING_SHA" \
+        '{message: $msg, content: $c, sha: $s}' > "$PUT_INPUT"
+      info "Updating .github/dependabot.yml on $REPO (sha=$EXISTING_SHA)"
+    else
+      jq -n --arg msg "$MSG" --arg c "$TEMPLATE_B64" \
+        '{message: $msg, content: $c}' > "$PUT_INPUT"
+      info "Creating .github/dependabot.yml on $REPO"
+    fi
+    gh api --method PUT "repos/$REPO/contents/.github/dependabot.yml" --input "$PUT_INPUT" --silent \
+      || die "failed to PUT .github/dependabot.yml on $REPO"
+  fi
+fi
+
+# 4. Follow-up checklist (cannot be done safely or automatically).
 cat >&2 <<EOF
 
-OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW, bypass admin: $BYPASS_ADMIN).
+OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW, bypass admin: $BYPASS_ADMIN, dependabot: ${WITH_DEPENDABOT:-none}).
 
 Next steps you should do manually:
 EOF

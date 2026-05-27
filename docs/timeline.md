@@ -15,6 +15,8 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-05
 
+- **2026-05-27** — fix(apply.sh): base64 directly from source, preserve trailing newline (clud-bug critical) *(feat/with-dependabot-flag)* — [decisions-branches/feat__with-dependabot-flag.md](decisions-branches/feat__with-dependabot-flag.md)
+- **2026-05-27** — feat(apply.sh): --with-dependabot=<eco> flag — write dependabot.yml at apply time *(feat/with-dependabot-flag)* — [decisions-branches/feat__with-dependabot-flag.md](decisions-branches/feat__with-dependabot-flag.md)
 - **2026-05-27** — chore: actually bump workflow pins to 0.3.3 (missed in prior commit) *(chore/bump-logmind-pin-0.3.3)* — [decisions-branches/chore__bump-logmind-pin-0.3.3.md](decisions-branches/chore__bump-logmind-pin-0.3.3.md)
 - **2026-05-27** — chore: bump logmind pin 0.2.1 → 0.3.3 *(chore/bump-logmind-pin-0.3.3)* — [decisions-branches/chore__bump-logmind-pin-0.3.3.md](decisions-branches/chore__bump-logmind-pin-0.3.3.md)
 - **2026-05-27** — Ship per-ecosystem dependabot templates; dogfood github-actions-only on reporulez *(feat/dependabot-templates)* — [decisions-branches/feat__dependabot-templates.md](decisions-branches/feat__dependabot-templates.md)
