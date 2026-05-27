@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install logmind
-        run: pip install 'logmind==0.2.1'
+        run: pip install 'logmind==0.3.3'
 
       - name: Check markdown link integrity
         run: logmind check-links
