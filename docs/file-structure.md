@@ -52,6 +52,7 @@ reporulez
 │   │   ├── feat__extra-check-flag.md
 │   │   ├── feat__strict-required-status-checks.md
 │   │   ├── feat__with-dependabot-flag.md
+│   │   ├── fix__audit-ruleset-correctness.md
 │   │   ├── fix__clud-bug-logmind-self-mod-bypass.md
 │   │   ├── fix__with-dependabot-step-order-plus-tests.md
 │   │   ├── install-logmind.md
