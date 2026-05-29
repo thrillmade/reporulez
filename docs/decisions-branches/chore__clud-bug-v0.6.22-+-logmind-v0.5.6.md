@@ -7,3 +7,11 @@
 - Cleaned up stale chore/agents-md-import branch (legacy from 0.0.I rollout, already merged on main).
 
 ---
+## 2026-05-29 14:33 - Fix CI: bump logmind workflow pin 0.3.3 → 0.5.6 (matches the v0.5.6 we install in PR)
+
+**Reasoning:** agent-skills #53 hit check-derived-docs failure because workflows pinned at logmind==0.3.3 produced verbose timeline format while my locally-committed v0.5.6 brief format. Same fix preemptively applied to reporulez before its CI runs. logmind init --no-git didn't trigger (template-version marker missing on these older workflows); used sed to bump just the install pin.
+
+**Implications:**
+- Future propagation PRs (rezgen, tokenomics) need the same pin bump applied preemptively. Track as a known issue with the propagation recipe — could add 'sed pin bump' to the recipe in the plan.
+
+---

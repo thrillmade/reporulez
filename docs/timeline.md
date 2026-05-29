@@ -13,8 +13,8 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-05 (36 decisions)
+## 2026-05 (37 decisions)
 
-- **2026-05-29** — Upgrade reporulez to clud-bug v0.6.22 + logmind v0.5.6 (Phase 0.5 propagation §1) *(chore/clud-bug-v0.6.22-+-logmind-v0.5.6)* — [decisions-branches/chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md](decisions-branches/chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md)
-- *... 34 more decisions ...*
+- **2026-05-29** — Fix CI: bump logmind workflow pin 0.3.3 → 0.5.6 (matches the v0.5.6 we install in PR) *(chore/clud-bug-v0.6.22-+-logmind-v0.5.6)* — [decisions-branches/chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md](decisions-branches/chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md)
+- *... 35 more decisions ...*
 - **2026-05-15** — Initialize logmind decision tracking *(install-logmind)* — [decisions-branches/install-logmind.md](decisions-branches/install-logmind.md)
