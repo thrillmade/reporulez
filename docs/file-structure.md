@@ -43,6 +43,7 @@ reporulez
 │   │   ├── chore__add-test-workflow.md
 │   │   ├── chore__bump-logmind-pin-0.3.3.md
 │   │   ├── chore__cleanup-readme-and-regen-derived-docs.md
+│   │   ├── chore__clud-bug-update-v0.6.12.md
 │   │   ├── chore__migrate-to-thrillmade.md
 │   │   ├── chore__reinit-clud-bug-at-v0.5.15.md
 │   │   ├── feat__audit-include-ruleset.md
