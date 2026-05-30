@@ -47,6 +47,7 @@ reporulez
 │   │   ├── chore__clud-bug-update-v0.6.12.md
 │   │   ├── chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md
 │   │   ├── chore__clud-bug-v0.6.23.md
+│   │   ├── chore__clud-bug-v0.6.25.md
 │   │   ├── chore__migrate-to-thrillmade.md
 │   │   ├── chore__reinit-clud-bug-at-v0.5.15.md
 │   │   ├── feat__audit-include-ruleset.md
