@@ -8,25 +8,8 @@ reporulez
 │   └── rules.md
 ├── .claude
 │   └── skills
-│       ├── clud-bug-collaboration
-│       │   └── SKILL.md
-│       ├── critical-issues-only
-│       │   └── SKILL.md
-│       ├── evidence-based-review
-│       │   └── SKILL.md
-│       ├── respect-existing-conventions
-│       │   └── SKILL.md
-│       └── .clud-bug.json
 ├── .github
 │   ├── workflows
-│   │   ├── check-decisions.yml
-│   │   ├── check-doc-links.yml
-│   │   ├── clud-bug-audit.yml
-│   │   ├── clud-bug-review.yml
-│   │   ├── clud-bug-self-update.yml
-│   │   ├── logmind-self-update.yml
-│   │   ├── regen-timeline.yml
-│   │   └── test.yml
 │   ├── copilot-instructions.md
 │   └── dependabot.yml
 ├── .logmind
@@ -40,31 +23,6 @@ reporulez
 │   └── audit.sh
 ├── docs
 │   ├── decisions-branches
-│   │   ├── chore__add-test-workflow.md
-│   │   ├── chore__agents-md-import.md
-│   │   ├── chore__bump-logmind-pin-0.3.3.md
-│   │   ├── chore__cleanup-readme-and-regen-derived-docs.md
-│   │   ├── chore__clud-bug-update-v0.6.12.md
-│   │   ├── chore__clud-bug-v0.6.22-+-logmind-v0.5.6.md
-│   │   ├── chore__clud-bug-v0.6.23.md
-│   │   ├── chore__clud-bug-v0.6.25.md
-│   │   ├── chore__migrate-to-thrillmade.md
-│   │   ├── chore__reinit-clud-bug-at-v0.5.15.md
-│   │   ├── feat__audit-include-ruleset.md
-│   │   ├── feat__audit-sh.md
-│   │   ├── feat__clud-bug-logmind-bypass-default.md
-│   │   ├── feat__dependabot-templates.md
-│   │   ├── feat__extra-check-flag.md
-│   │   ├── feat__strict-required-status-checks.md
-│   │   ├── feat__with-dependabot-flag.md
-│   │   ├── fix__audit-ruleset-correctness.md
-│   │   ├── fix__clud-bug-logmind-self-mod-bypass.md
-│   │   ├── fix__with-dependabot-step-order-plus-tests.md
-│   │   ├── install-logmind.md
-│   │   ├── reinstall-logmind.md
-│   │   ├── upgrade-logmind-014.md
-│   │   ├── upgrade-logmind-020.md
-│   │   └── upgrade-logmind-021.md
 │   ├── decisions-archive.md
 │   ├── decisions.md
 │   ├── file-structure.md
@@ -75,9 +33,6 @@ reporulez
 │   └── external.json
 ├── templates
 │   ├── dependabot
-│   │   ├── github-actions-only.yml
-│   │   ├── python.yml
-│   │   └── typescript.yml
 │   ├── CODEOWNERS
 │   └── pull_request_template.md
 ├── .clinerules
@@ -92,3 +47,7 @@ reporulez
 ├── LICENSE
 └── README.md
 ```
+
+_Truncated at depth 2 (logmind v0.5.0+ default). For a deeper view, run
+`logmind file-structure --write docs/file-structure.md --max-depth N` or
+`logmind tree --max-depth 0` for the full tree._
