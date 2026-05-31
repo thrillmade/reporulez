@@ -13,8 +13,8 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-05 (41 decisions)
+## 2026-05 (42 decisions)
 
-- **2026-05-30** — Upgrade reporulez to clud-bug v0.6.27 (Smart Budget Phase 3 — L3 mid-review check-in) *(chore/clud-bug-v0.6.27)* — [decisions-branches/chore__clud-bug-v0.6.27.md](decisions-branches/chore__clud-bug-v0.6.27.md)
-- *... 39 more decisions ...*
+- **2026-05-31** — chore: propagate clud-bug v0.6.29 (skill-usage workflow integration) *(chore/clud-bug-v0.6.29)* — [decisions-branches/chore__clud-bug-v0.6.29.md](decisions-branches/chore__clud-bug-v0.6.29.md)
+- *... 40 more decisions ...*
 - **2026-05-15** — Initialize logmind decision tracking *(install-logmind)* — [decisions-branches/install-logmind.md](decisions-branches/install-logmind.md)
