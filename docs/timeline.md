@@ -13,10 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-06 (4 decisions)
+## 2026-06 (5 decisions)
 
-- **2026-06-01** — chore: refresh logmind v0.5.6 → v0.6.9 (manual; pin regex bug in logmind agents update) *(chore/logmind-v0.6.9)* — [decisions-branches/chore__logmind-v0.6.9.md](decisions-branches/chore__logmind-v0.6.9.md)
-- *... 2 more decisions ...*
+- **2026-06-01** — chore: refresh logmind v0.6.9 → v0.6.11 (auto-detected single-quoted pins via v0.6.11 regex fix) *(chore/logmind-v0.6.11)* — [decisions-branches/chore__logmind-v0.6.11.md](decisions-branches/chore__logmind-v0.6.11.md)
+- *... 3 more decisions ...*
 - **2026-06-01** — chore: propagate clud-bug v0.6.30 (cross-review aggregation reads workflow artifacts) *(chore/clud-bug-v0.6.30)* — [decisions-branches/chore__clud-bug-v0.6.30.md](decisions-branches/chore__clud-bug-v0.6.30.md)
 
 ## 2026-05 (42 decisions)
