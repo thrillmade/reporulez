@@ -55,7 +55,7 @@ After cloning, contributors should:
 
 1. **Install logmind** locally (CLI tool used to log decisions):
    ```bash
-   pipx install logmind   # or: brew install thrillmade/logmind/logmind
+   brew install thrillmade/tap/logmind   # macOS + Linux; or: curl -fsSL https://logmind.dev/install.sh | bash
    logmind install-hook   # .git/hooks/pre-commit
    ```
    The same enforcement runs on every PR via `.github/workflows/check-decisions.yml`
