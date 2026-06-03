@@ -312,10 +312,10 @@ After bumping the logmind CLI, re-run `logmind init` to refresh the shipped
 workflow templates:
 
 ```sh
-pipx install --force logmind     # or: pip install --upgrade logmind
-logmind init                     # idempotent refresh in v0.2.1+ — rewrites
-                                 # workflow templates in place, leaves
-                                 # docs/ and .logmind/ untouched
+brew upgrade thrillmade/tap/logmind   # or: curl -fsSL https://logmind.dev/install.sh | bash
+logmind init                          # idempotent refresh in v0.2.1+ — rewrites
+                                      # workflow templates in place, leaves
+                                      # docs/ and .logmind/ untouched
 ```
 
 For clud-bug, see [thrillmade/clud-bug](https://github.com/thrillmade/clud-bug)'s
