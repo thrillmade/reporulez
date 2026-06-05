@@ -29,9 +29,10 @@ resolution, and (in the `copilot` variant) wires up GitHub Copilot
 auto-review. Two variants — `copilot` and `external` — plus a
 `--human-review` flag. See `README.md` for the full design.
 
-This repo itself uses the `external` variant: clud-bug is the AI reviewer,
-logmind enforces decision logging, and CI gates every PR on `clud-bug-review`,
-`check-decisions`, and `check-links` (all currently passing).
+This repo itself uses the `external` variant: clud-bug is the AI reviewer (now
+delivered via the `clud-bug[bot]` GitHub App installed at the thrillmade org
+— no per-repo workflow), logmind enforces decision logging, and CI gates every
+PR on `check-decisions` and `check-links` (all currently passing).
 
 ## Development Commands
 
@@ -75,21 +76,12 @@ After cloning, contributors should:
    pushing avoids the red CI run.
 
 <!-- clud-bug-start -->
-<!-- clud-bug-block-version: v2 -->
+<!-- clud-bug-block-version: v3-app -->
 ## clud-bug — Claude PR review
 
-This repo uses [clud-bug](https://cludbug.dev) for automatic PR reviews.
-Full collaboration rules — fix-push flow, skill structure, comment format,
-strict-mode mechanics, workflow-edit constraint — live in the bundled
-[`clud-bug-collaboration` skill](.claude/skills/clud-bug-collaboration/SKILL.md).
-Read that skill before pushing fixes addressing prior review threads.
+**PR reviews:** automated via the `clud-bug[bot]` GitHub App (installed at the thrillmade org). No per-repo workflow needed. See <https://github.com/thrillmade/clud-bug-app> for the App source and the `.claude/skills/.clud-bug.json` manifest for skill selection.
 
-Strict mode is **on** in this repo (workflow check fails on critical findings). Toggle via `.claude/skills/.clud-bug.json`
-(read from PR **base ref**, so PRs can't disable strict-mode on themselves).
+Collaboration rules — fix-push flow, skill structure, comment format — live in the bundled [`clud-bug-collaboration` skill](.claude/skills/clud-bug-collaboration/SKILL.md). Read that skill before pushing fixes addressing prior review threads.
 
-For agent invocations of the `clud-bug` CLI, prefer `CLUD_BUG_QUIET=1`
-(or pass `--quiet`) — suppresses progress chatter and emits a single
-`ok <key-value>` summary line per command.
-
-_Installed at clud-bug v0.6.32._
+For agent invocations of the `clud-bug` CLI, prefer `CLUD_BUG_QUIET=1` (or pass `--quiet`) — suppresses progress chatter and emits a single `ok <key-value>` summary line per command.
 <!-- clud-bug-end -->
