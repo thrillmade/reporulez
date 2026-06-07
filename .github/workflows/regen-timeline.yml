@@ -32,7 +32,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: thrillmade/setup-logmind@v1.0.1
+      - uses: thrillmade/setup-logmind@v1.0.0
 
       - name: Verify docs/timeline.md is current
         run: |
