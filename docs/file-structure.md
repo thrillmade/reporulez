@@ -7,7 +7,9 @@ reporulez
 ├── .amazonq
 │   └── rules.md
 ├── .claude
-│   └── skills
+│   ├── commands
+│   ├── skills
+│   └── settings.json
 ├── .github
 │   ├── workflows
 │   ├── copilot-instructions.md
