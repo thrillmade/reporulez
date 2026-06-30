@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Apply the reporulez default ruleset + repo settings to a target repository.
 #
-# Usage: apply.sh <owner/repo> [copilot|external|clud-bug-logmind] \
+# Usage: apply.sh <owner/repo> [copilot|external|skdd] \
 #                              [--human-review] \
 #                              [--bypass-admin | --no-bypass-admin] \
 #                              [--extra-check 'CONTEXT NAME']... \
 #                              [--with-dependabot=<ecosystem>]
 #
 # Defaults: copilot variant, no human review required (AI auto-mode). Bypass
-# actors default OFF for copilot/external and ON for clud-bug-logmind (its
+# actors default OFF for copilot/external and ON for skdd (its
 # self-mod use case practically always needs the Repository admin bypass —
 # see --bypass-admin docs below). Override per-variant default with
 # --bypass-admin (force on) or --no-bypass-admin (force off).
 #
-# The clud-bug-logmind variant extends external with a required_status_checks
+# The skdd variant extends external with a required_status_checks
 # rule for the canonical contexts shipped by both tools (clud-bug-review,
 # check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
 # so branches must be up to date — load-bearing for logmind's per-PR
 # derived-file conflict-free property.
 #
 # --bypass-admin pre-populates bypass_actors with "Repository admin" (RepositoryRole
-# id=5, bypass_mode=always). On clud-bug-logmind this is the DEFAULT (use
+# id=5, bypass_mode=always). On skdd this is the DEFAULT (use
 # --no-bypass-admin to opt out) because clud-bug's review action 401s on
 # PRs that edit its own workflow files (self-mod guard), so the required
 # clud-bug-review check fails and merge deadlocks. The bypass lets an admin
@@ -32,7 +32,7 @@
 # check contexts (e.g. pytest matrix slots) to the ruleset's required_status_checks
 # list at apply time. Lets a single apply.sh call match a project's actual CI
 # without forking the variant JSON. Requires the chosen variant to ship a
-# required_status_checks rule — works with clud-bug-logmind; errors out cleanly
+# required_status_checks rule — works with skdd; errors out cleanly
 # on copilot/external (which deliberately don't ship that rule).
 #
 # --with-dependabot=<ecosystem> writes the matching templates/dependabot/<eco>.yml
@@ -81,7 +81,8 @@ WITH_DEPENDABOT=""  # empty = skip the dependabot.yml step (default); otherwise 
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    copilot|external|clud-bug-logmind) VARIANT="$1"; shift ;;
+    copilot|external|skdd) VARIANT="$1"; shift ;;
+    clud-bug-logmind) VARIANT="skdd"; shift ;;  # deprecated alias → skdd (renamed: the canonical SkDD-toolchain bundle)
     --human-review) HUMAN_REVIEW="true"; shift ;;
     --bypass-admin) BYPASS_ADMIN="true"; shift ;;
     --no-bypass-admin) BYPASS_ADMIN="false"; shift ;;
@@ -109,7 +110,7 @@ if [[ -n "$WITH_DEPENDABOT" ]]; then
 fi
 
 # Per-variant default for BYPASS_ADMIN when caller didn't pass the flag.
-# clud-bug-logmind defaults ON because the variant's self-mod use case
+# skdd defaults ON because the variant's self-mod use case
 # (clud-bug's claude-code-action 401s on PRs editing its own workflow
 # files) practically always needs the Repository admin bypass — without
 # it, every self-mod PR deadlocks. copilot/external default OFF because
@@ -117,7 +118,7 @@ fi
 # or --no-bypass-admin always wins over the default.
 if [[ -z "$BYPASS_ADMIN" ]]; then
   case "$VARIANT" in
-    clud-bug-logmind) BYPASS_ADMIN="true" ;;
+    skdd) BYPASS_ADMIN="true" ;;
     *)                BYPASS_ADMIN="false" ;;
   esac
 fi
@@ -175,11 +176,11 @@ fi
 # Patch required_status_checks with each --extra-check value. Lets a single
 # apply.sh call add project-specific contexts (e.g. pytest matrix slots) without
 # forking the variant JSON. The variant must already ship a required_status_checks
-# rule (currently only clud-bug-logmind does); other variants deliberately omit
+# rule (currently only skdd does); other variants deliberately omit
 # that rule because GitHub's API rejects an empty checks list.
 if [[ ${#EXTRA_CHECKS[@]} -gt 0 ]]; then
   echo "$RULESET_JSON" | jq -e '.rules | any(.type == "required_status_checks")' >/dev/null \
-    || die "--extra-check requires a variant that ships required_status_checks (use clud-bug-logmind, or skip --extra-check and add the rule manually in the UI)"
+    || die "--extra-check requires a variant that ships required_status_checks (use skdd, or skip --extra-check and add the rule manually in the UI)"
   for ctx in "${EXTRA_CHECKS[@]}"; do
     info "Adding required status check context: $ctx"
     RULESET_JSON="$(echo "$RULESET_JSON" | CTX="$ctx" jq '
@@ -217,7 +218,7 @@ gh api --method PATCH "repos/$REPO" --silent \
 #    Step ORDER matters for the common case: this runs BEFORE the
 #    ruleset is applied (step 3) so the contents PUT doesn't bump into
 #    the ruleset's pull_request rule on a FIRST apply (when no
-#    ruleset exists yet). The clud-bug-logmind variant ships an admin
+#    ruleset exists yet). The skdd variant ships an admin
 #    bypass that papers over this anyway, but copilot/external variants
 #    default `bypass_actors: []` and would otherwise reject this write
 #    once the ruleset is in force.
@@ -312,8 +313,8 @@ OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $
 Next steps you should do manually:
 EOF
 
-if [[ "$VARIANT" == "clud-bug-logmind" ]]; then
-  # The clud-bug-logmind variant already ships required_status_checks with the
+if [[ "$VARIANT" == "skdd" ]]; then
+  # The skdd variant already ships required_status_checks with the
   # four canonical contexts, so the manual "add a status-checks rule" step is
   # skipped here. The most important caveat for this variant is below.
   cat >&2 <<EOF
@@ -336,7 +337,7 @@ EOF
      to either disable the ruleset for those merges or hand-PATCH bypass_actors.
      If you change your mind, re-run with --bypass-admin (now the default for
      this variant):
-       ./bin/apply.sh $REPO clud-bug-logmind --bypass-admin
+       ./bin/apply.sh $REPO skdd --bypass-admin
 EOF
   fi
 else

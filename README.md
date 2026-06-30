@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply
 # Repository admin bypass for clud-bug self-mod PRs is ON BY DEFAULT for
 # this variant), plus your project's pytest matrix as extra required checks:
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo clud-bug-logmind \
+  | bash -s -- owner/repo skdd \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
       --extra-check 'pytest (ubuntu-latest / py3.12)'
 ```
@@ -52,11 +52,11 @@ curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply
 check contexts to the variant's `required_status_checks` list at apply time. Lets
 a single command match a project's actual CI without forking the variant JSON.
 Only works against variants that ship `required_status_checks` (currently
-`clud-bug-logmind`); errors cleanly on `copilot`/`external` since they deliberately
+`skdd`); errors cleanly on `copilot`/`external` since they deliberately
 omit that rule.
 
 `--bypass-admin` adds the **Repository admin** role to `bypass_actors`. **Default
-ON for `clud-bug-logmind`** (the self-mod use case practically always needs it);
+ON for `skdd`** (the self-mod use case practically always needs it);
 default OFF for `copilot`/`external`. Override the per-variant default with
 `--no-bypass-admin` to force off, or `--bypass-admin` to force on. See
 [Admin bypass flag](#admin-bypass-flag) below for the rationale.
@@ -69,7 +69,7 @@ Requires the [`gh`](https://cli.github.com) CLI authenticated against the target
 |---|---|---|---|
 | `copilot` (default) | enabled via the `copilot_code_review` ruleset rule | none — add manually after install | You want GitHub's built-in reviewer to comment on every PR. |
 | `external` | not included | none — add manually after install | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmade/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
-| `clud-bug-logmind` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | Canonical bundle for repos with **both** [**clud-bug**](https://github.com/thrillmade/clud-bug) and [**logmind**](https://logmind.dev) installed. Extends `external` with the four well-known check contexts both tools ship + strict-mode so logmind v0.2's derived-file conflict-free property stays sound. |
+| `skdd` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | The **canonical [SkDD](https://github.com/thrillmade/protocol)-toolchain ruleset** (protocol SPEC §7) — for any repo in the thrillmade toolchain ([**clud-bug**](https://github.com/thrillmade/clud-bug) / [**logmind**](https://logmind.dev) / protocol). Extends `external` with the four canonical check contexts the toolchain ships + strict-mode so logmind's derived-file conflict-free property stays sound. *(Renamed from `clud-bug-logmind`; that name still works as a deprecated alias.)* |
 
 > 💡 Pairs nicely with [**clud-bug**](https://github.com/thrillmade/clud-bug): a one-command (`npx clud-bug init`) install of a Claude PR-review GitHub Action that auto-discovers project-aware review skills from [skills.sh](https://skills.sh) and resolves its own review threads when issues are fixed — which is exactly what the `required_review_thread_resolution` gate in this ruleset is designed to lean on. This repo itself uses clud-bug; see PR #2 / #3 for live review examples.
 
@@ -77,10 +77,10 @@ All three variants share the structural rules: PR required, force push and delet
 linear history, squash-only merges, dismiss stale reviews, all threads must resolve.
 The `copilot` and `external` variants **deliberately omit** a `required_status_checks` rule
 (GitHub's API rejects an empty list, and we can't know your CI workflow names) — add the
-rule with your contexts manually after install. The `clud-bug-logmind` variant skips that
+rule with your contexts manually after install. The `skdd` variant skips that
 manual step because we *do* know the canonical contexts when both tools are installed.
 
-> **Note on `clud-bug-logmind`'s strict mode:** `strict_required_status_checks_policy: true`
+> **Note on `skdd`'s strict mode:** `strict_required_status_checks_policy: true`
 > in this variant is load-bearing for logmind v0.2's per-PR derived-file model (`docs/timeline.md`
 > regenerated on every PR). Without rebase-before-merge, two concurrent PRs can each pass
 > `check-derived-docs` independently and then deadlock on conflicting regens at merge time.
@@ -114,7 +114,7 @@ Pass `--human-review` only if you want to layer a human approver on top.
 (`actor_type: RepositoryRole`, `actor_id: 5`, `bypass_mode: always`).
 
 **Per-variant default:**
-- `clud-bug-logmind` → **ON by default** (the variant's self-mod use case practically
+- `skdd` → **ON by default** (the variant's self-mod use case practically
   always needs the bypass — without it every routine clud-bug self-mod deadlocks).
   Use `--no-bypass-admin` to opt out.
 - `copilot`, `external` → **OFF by default** (no built-in self-mod use case).
@@ -128,14 +128,14 @@ a malicious PR could rewrite the reviewer to rubber-stamp itself. The cost is th
 fail the required `clud-bug-review` check and deadlock against `required_status_checks`.
 
 Three ways out:
-1. **`--bypass-admin` (default ON for `clud-bug-logmind`):** a repo admin can merge
+1. **`--bypass-admin` (default ON for `skdd`):** a repo admin can merge
    the stuck PR via "Bypass branch protections" without touching the ruleset.
 2. **Hand-PATCH `bypass_actors` mid-merge** via `gh api --method PUT repos/$REPO/rulesets/$ID`
    — works once, but every fresh install needs the same manual setup.
 3. **Toggle `enforcement: disabled` globally**, merge, re-enable — opens a real
    policy-gap window where the ruleset doesn't protect *anything*.
 
-The flag works with any variant; we made it the default ONLY for `clud-bug-logmind`
+The flag works with any variant; we made it the default ONLY for `skdd`
 because that's the variant whose required-checks list is opinionated about clud-bug
 specifically, and clud-bug's self-mod ceremony is a normal recurring flow there.
 
@@ -175,7 +175,7 @@ The script is idempotent — running it twice updates the existing ruleset inste
      (GitHub's API rejects an empty list, and we can't know your workflow names).
      Add it via Settings → Rules → Rulesets → `reporulez-default` → "Require
      status checks to pass".
-   - **`clud-bug-logmind` variant: skip this step.** The ruleset already ships
+   - **`skdd` variant: skip this step.** The ruleset already ships
      this rule with the four canonical contexts (`clud-bug-review`,
      `check-derived-docs`, `check-decisions`, `check-links`) and strict mode on.
      Editing the rule manually here will clobber those contexts.
@@ -211,7 +211,7 @@ The script is idempotent — running it twice updates the existing ruleset inste
    target repo if you pass `--with-dependabot=<ecosystem>` on the same invocation:
 
    ```sh
-   ./bin/apply.sh owner/repo clud-bug-logmind --with-dependabot=python
+   ./bin/apply.sh owner/repo skdd --with-dependabot=python
    ```
 
    Idempotent — re-running with the same flag is a no-op when the file is
@@ -228,7 +228,7 @@ The script is idempotent — running it twice updates the existing ruleset inste
    > applies; it does not patch the existing ruleset that step 2's
    > PUT runs against. The actual prerequisite is that the target
    > repo's *existing* ruleset already contains Repository admin in
-   > `bypass_actors`. For `clud-bug-logmind` that's the variant
+   > `bypass_actors`. For `skdd` that's the variant
    > default, so first-time AND ecosystem-switching applies both
    > work. For `copilot`/`external`, only first-apply and idempotent
    > re-apply work without manual intervention; ecosystem-switching
@@ -239,7 +239,7 @@ The script is idempotent — running it twice updates the existing ruleset inste
 3. **Verify entitlement / app install:**
    - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
    - `external` variant: an AI reviewer GitHub App must be installed and configured.
-   - `clud-bug-logmind` variant: **both** [clud-bug](https://github.com/thrillmade/clud-bug)
+   - `skdd` variant: **both** [clud-bug](https://github.com/thrillmade/clud-bug)
      **and** [logmind](https://logmind.dev) must be installed on the target repo
      (run `npx clud-bug init` and `logmind init --all-agents --install-hook`).
      The shipped `required_status_checks` rule pins four contexts that come from
