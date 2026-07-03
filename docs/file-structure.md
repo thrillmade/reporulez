@@ -30,9 +30,9 @@ reporulez
 │   ├── file-structure.md
 │   └── timeline.md
 ├── rulesets
-│   ├── clud-bug-logmind.json
 │   ├── copilot.json
-│   └── external.json
+│   ├── external.json
+│   └── skdd.json
 ├── templates
 │   ├── dependabot
 │   ├── CODEOWNERS
