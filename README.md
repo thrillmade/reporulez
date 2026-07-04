@@ -146,6 +146,48 @@ already inherit admin access to the repo and can use the same bypass. If you wan
 *separate* org-administrator bypass entry (`actor_type: OrganizationAdmin`, `actor_id: 1`),
 add it manually after install — including it by default would 404 on personal repos.
 
+## Org-level baseline
+
+Everything above is **repo-level** — one `apply.sh` run per repository. To protect a
+whole organization in one command, apply the **org-level baseline** instead:
+
+```sh
+# Protect the default branch of EVERY repo in the org (incl. future repos):
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
+  | bash -s -- your-org
+```
+
+`bin/apply-org.sh <org> [org-baseline]` creates (or idempotently updates) a single
+**org-level ruleset** named `org-baseline` via `POST`/`PUT orgs/<org>/rulesets`. It targets
+the default branch of **every repository in the org via `repository_name: ~ALL`** — including
+repos created *after* you run it, so new repos are protected the moment they exist without a
+per-repo follow-up.
+
+**What it enforces (org-wide floor):** PRs required (no direct default-branch pushes), force
+pushes blocked, default-branch deletion blocked. An **OrganizationAdmin** bypass
+(`bypass_mode: always`) is baked in so an org owner can unstick an edge case without disabling
+the ruleset. It is deliberately minimal — it omits the linear-history / squash-only / thread-
+resolution opinions the per-repo variants carry, so it never breaks a repo that legitimately
+wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
+
+**It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
+ruleset that targets a branch, and a write must satisfy **all** of them. So the org floor and
+any per-repo `reporulez-default` ruleset stack: the repo ruleset can only add restrictions on
+top of the org floor, never relax it. Running `apply-org.sh` does not touch, replace, or
+weaken rulesets applied by `apply.sh`. (Unlike `apply.sh`, `apply-org.sh` also does **not**
+PATCH per-repo settings like auto-merge / squash-only / delete-on-merge — those are
+repo-scoped with no org-level equivalent; keep using `apply.sh` per repo for them.)
+
+**Requires the `admin:org` scope.** Reading and writing org rulesets needs it — without it
+`gh api orgs/<org>/rulesets` returns `403`, and the script fails fast with:
+
+```sh
+gh auth refresh -h github.com -s admin:org
+```
+
+You must be an **owner** of the org. Like `apply.sh`, the script is idempotent — re-running
+updates the existing `org-baseline` ruleset instead of creating a duplicate.
+
 ## What gets configured
 
 The installer applies two things:
@@ -334,7 +376,7 @@ To require a human approval in this path, edit the JSON's `required_approving_re
 
 ## Out of scope (for now)
 
-- Org-level rulesets (use repo-level for now; org-level lives at a different API path)
+- Org-level *variants* beyond `org-baseline` (the org floor exists — see [Org-level baseline](#org-level-baseline); richer org variants that mirror `clud-bug`/`skdd`/`public-guard` are not built yet)
 - Tag protection
 - Push rulesets (file paths, file sizes, etc.)
 - Required signed commits — high friction for AI agents without signing keys
