@@ -25,10 +25,13 @@
       }
     },
     {
-      "type": "copilot_code_review",
+      "type": "required_status_checks",
       "parameters": {
-        "review_on_push": true,
-        "review_draft_pull_requests": false
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "clud-bug-review" }
+        ]
       }
     }
   ]

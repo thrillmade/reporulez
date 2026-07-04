@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Apply the reporulez default ruleset + repo settings to a target repository.
 #
-# Usage: apply.sh <owner/repo> [copilot|external|skdd] \
+# Usage: apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] \
 #                              [--human-review] \
 #                              [--bypass-admin | --no-bypass-admin] \
 #                              [--extra-check 'CONTEXT NAME']... \
 #                              [--with-dependabot=<ecosystem>]
 #
-# Defaults: copilot variant, no human review required (AI auto-mode). Bypass
-# actors default OFF for copilot/external and ON for skdd (its
+# Defaults: baseline variant, no human review required (AI auto-mode). Bypass
+# actors default OFF for baseline/clud-bug/public-guard and ON for skdd (its
 # self-mod use case practically always needs the Repository admin bypass —
 # see --bypass-admin docs below). Override per-variant default with
 # --bypass-admin (force on) or --no-bypass-admin (force off).
 #
-# The skdd variant extends external with a required_status_checks
+# The skdd variant extends baseline with a required_status_checks
 # rule for the canonical contexts shipped by both tools (clud-bug-review,
 # check-derived-docs, check-decisions, check-links) and strict_required_status_checks_policy: true
 # so branches must be up to date — load-bearing for logmind's per-PR
@@ -24,8 +24,8 @@
 # --no-bypass-admin to opt out) because clud-bug's review action 401s on
 # PRs that edit its own workflow files (self-mod guard), so the required
 # clud-bug-review check fails and merge deadlocks. The bypass lets an admin
-# merge those self-mod PRs without disabling the whole ruleset. On copilot
-# and external variants the default is OFF — opt in with --bypass-admin
+# merge those self-mod PRs without disabling the whole ruleset. On the other
+# variants the default is OFF — opt in with --bypass-admin
 # only if you also have a self-mod ceremony to support.
 #
 # --extra-check 'CONTEXT NAME' is repeatable and adds project-specific status
@@ -33,7 +33,7 @@
 # list at apply time. Lets a single apply.sh call match a project's actual CI
 # without forking the variant JSON. Requires the chosen variant to ship a
 # required_status_checks rule — works with skdd; errors out cleanly
-# on copilot/external (which deliberately don't ship that rule).
+# on baseline/public-guard (which deliberately don't ship that rule).
 #
 # --with-dependabot=<ecosystem> writes the matching templates/dependabot/<eco>.yml
 # template to the target repo's .github/dependabot.yml in the same apply.sh call.
@@ -73,7 +73,7 @@ is_valid_dependabot_eco() {
 case "$1" in -h|--help) usage; exit 0 ;; esac
 
 REPO="$1"; shift
-VARIANT="copilot"
+VARIANT="baseline"
 HUMAN_REVIEW="false"
 BYPASS_ADMIN=""  # sentinel: empty = use per-variant default; "true"/"false" = explicit
 EXTRA_CHECKS=()  # parallel array of context names; preserves order
@@ -81,7 +81,8 @@ WITH_DEPENDABOT=""  # empty = skip the dependabot.yml step (default); otherwise 
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    copilot|external|skdd) VARIANT="$1"; shift ;;
+    baseline|clud-bug|skdd|public-guard) VARIANT="$1"; shift ;;
+    external) VARIANT="baseline"; shift ;;  # deprecated alias → baseline (renamed: the structural secure floor)
     clud-bug-logmind) VARIANT="skdd"; shift ;;  # deprecated alias → skdd (renamed: the canonical SkDD-toolchain bundle)
     --human-review) HUMAN_REVIEW="true"; shift ;;
     --bypass-admin) BYPASS_ADMIN="true"; shift ;;
@@ -113,7 +114,7 @@ fi
 # skdd defaults ON because the variant's self-mod use case
 # (clud-bug's claude-code-action 401s on PRs editing its own workflow
 # files) practically always needs the Repository admin bypass — without
-# it, every self-mod PR deadlocks. copilot/external default OFF because
+# it, every self-mod PR deadlocks. other variants default OFF because
 # they don't have a self-mod ceremony built in. Explicit --bypass-admin
 # or --no-bypass-admin always wins over the default.
 if [[ -z "$BYPASS_ADMIN" ]]; then
@@ -176,11 +177,11 @@ fi
 # Patch required_status_checks with each --extra-check value. Lets a single
 # apply.sh call add project-specific contexts (e.g. pytest matrix slots) without
 # forking the variant JSON. The variant must already ship a required_status_checks
-# rule (currently only skdd does); other variants deliberately omit
+# rule (skdd and clud-bug do); other variants deliberately omit
 # that rule because GitHub's API rejects an empty checks list.
 if [[ ${#EXTRA_CHECKS[@]} -gt 0 ]]; then
   echo "$RULESET_JSON" | jq -e '.rules | any(.type == "required_status_checks")' >/dev/null \
-    || die "--extra-check requires a variant that ships required_status_checks (use skdd, or skip --extra-check and add the rule manually in the UI)"
+    || die "--extra-check requires a variant that ships required_status_checks (use skdd or clud-bug, or skip --extra-check and add the rule manually in the UI)"
   for ctx in "${EXTRA_CHECKS[@]}"; do
     info "Adding required status check context: $ctx"
     RULESET_JSON="$(echo "$RULESET_JSON" | CTX="$ctx" jq '
@@ -219,7 +220,7 @@ gh api --method PATCH "repos/$REPO" --silent \
 #    ruleset is applied (step 3) so the contents PUT doesn't bump into
 #    the ruleset's pull_request rule on a FIRST apply (when no
 #    ruleset exists yet). The skdd variant ships an admin
-#    bypass that papers over this anyway, but copilot/external variants
+#    bypass that papers over this anyway, but baseline/public-guard variants
 #    default `bypass_actors: []` and would otherwise reject this write
 #    once the ruleset is in force.
 #
@@ -227,7 +228,7 @@ gh api --method PATCH "repos/$REPO" --silent \
 #    flag does not produce a new commit when the file is already
 #    current (GET-base64-compare-skip).
 #
-#    KNOWN LIMITATION (ecosystem switch on re-apply, copilot/external
+#    KNOWN LIMITATION (ecosystem switch on re-apply, baseline/public-guard
 #    only): if the target repo already has the ruleset AND the caller
 #    passes a different --with-dependabot value than was last applied,
 #    the PUT executes against a still-protected branch and dies. The
@@ -313,10 +314,10 @@ OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $
 Next steps you should do manually:
 EOF
 
-if [[ "$VARIANT" == "skdd" ]]; then
-  # The skdd variant already ships required_status_checks with the
-  # four canonical contexts, so the manual "add a status-checks rule" step is
-  # skipped here. The most important caveat for this variant is below.
+case "$VARIANT" in
+skdd)
+  # skdd ships required_status_checks with the four canonical contexts, so the
+  # manual "add a status-checks rule" step is skipped. The key caveat is below.
   cat >&2 <<EOF
   1. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
   2. Confirm BOTH clud-bug AND logmind are installed on this repo. The ruleset's
@@ -340,23 +341,37 @@ EOF
        ./bin/apply.sh $REPO skdd --bypass-admin
 EOF
   fi
-else
+  ;;
+clud-bug)
+  # clud-bug ships required_status_checks with just the clud-bug-review context.
+  cat >&2 <<EOF
+  1. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
+  2. Confirm clud-bug is installed on this repo. The ruleset's required_status_checks
+     rule pins the clud-bug-review context; if clud-bug is not installed the check
+     never reports and every PR blocks forever (strict policy is on). Install with:
+       npx clud-bug init
+EOF
+  ;;
+public-guard)
+  cat >&2 <<EOF
+  1. REQUIRED: add a CODEOWNERS file (templates/CODEOWNERS) listing the human
+     maintainers who may approve. This variant sets require_code_owner_review=true
+     and required_approving_review_count=1 — the "an outsider's PR needs a HUMAN
+     maintainer approval" gate — which only bites once CODEOWNERS exists.
+  2. (Optional) Drop in templates/pull_request_template.md.
+  3. A bot/App check (e.g. clud-bug-review) is ADVISORY here and does NOT satisfy the
+     human approval. To ALSO require the clud-bug check, layer it at the org level or
+     add a required_status_checks rule in the UI.
+EOF
+  ;;
+*)
   cat >&2 <<EOF
   1. Add a 'Require status checks to pass' rule with your CI workflow names via
      Settings -> Rules -> Rulesets -> '$RULESET_NAME' -> Require status checks to pass.
-     (The ruleset ships without this rule because GitHub's API rejects an empty list.)
+     (The baseline ruleset ships without this rule because GitHub's API rejects an empty list.)
   2. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
+  3. Confirm an AI reviewer GitHub App (e.g. clud-bug, CodeRabbit) is installed and
+     configured to comment on every PR, so the thread-resolution gate has something to gate on.
 EOF
-  if [[ "$VARIANT" == "copilot" ]]; then
-    cat >&2 <<EOF
-  3. Confirm Copilot code review is licensed for this repo (Pro/Pro+/Business).
-     The copilot_code_review rule is inert without entitlement.
-EOF
-  else
-    cat >&2 <<EOF
-  3. Confirm a non-Copilot AI reviewer GitHub App is installed (e.g. Anthropic's
-     Claude Code Review, CodeRabbit, Cursor) and configured to comment on every PR.
-     Without one, the thread-resolution gate has nothing to gate on.
-EOF
-  fi
-fi
+  ;;
+esac
