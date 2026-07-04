@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-07
 
+- **2026-07-04** — reporulez: org-level baseline ruleset support (apply-org.sh + org-baseline.json) *(reporulez-org-level)* — [decisions-branches/reporulez-org-level.md](decisions-branches/reporulez-org-level.md)
 - **2026-07-03** — reporulez: purpose-named ruleset taxonomy — drop copilot, external→baseline, +clud-bug +public-guard *(reporulez-taxonomy)* — [decisions-branches/reporulez-taxonomy.md](decisions-branches/reporulez-taxonomy.md)
 
 ## 2026-06 (10 decisions)
