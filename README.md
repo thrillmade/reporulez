@@ -7,19 +7,17 @@ bypassing safety.
 
 **What the ruleset alone enforces (always on):** PRs are required (no direct pushes to
 the default branch), force pushes and default-branch deletions are blocked, linear history
-required, squash-only merges, stale reviews dismissed on push, last-push approval required,
+required, squash-only merges, stale reviews dismissed on push, and
 **any** review thread that gets created must be resolved before merge.
 
-**What it does *not* enforce until you configure more:** that a review actually happens,
-and that CI checks pass. The `copilot` variant adds GitHub Copilot auto-review (advisory
-comments) so threads get created on every PR. The `external` variant assumes you've
-installed a non-Copilot AI reviewer App that does the same — without one, the
-thread-resolution gate has nothing to gate on. Status checks: the ruleset deliberately
-**does not include a `required_status_checks` rule** (GitHub's API rejects that rule
-with an empty list, and we can't know your CI workflow names). Add it yourself after
-install via the GitHub UI. Until you do (and until your AI reviewer is installed for the
-`external` variant), the structural rules above are the only merge gates, and an empty
-PR can be self-merged.
+**What it does *not* enforce until you pick a variant:** that a review actually happens,
+and that CI checks pass. The `baseline` variant is the structural floor only. The
+`clud-bug` variant adds the `clud-bug-review` required status check. The `skdd` variant
+adds the full thrillmade-toolchain check set (clud-bug + logmind). The `public-guard`
+variant adds a required **human** code-owner approval for repos with outside contributors.
+With `baseline` alone, the structural rules above are the only merge gates, and an empty
+PR can be self-merged — layer a variant (or add a `required_status_checks` rule in the UI)
+to gate on an actual review.
 
 The `--human-review` flag layers on a required human approval if you want a person in the
 loop as well.
@@ -27,17 +25,17 @@ loop as well.
 ## Quickstart
 
 ```sh
-# Default: Copilot auto-review enabled, no human approval required (full AI auto-mode).
+# Default: the structural baseline (PR required, no force-push/deletion, linear, squash-only).
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo
 
-# With a human-in-the-loop approval gate:
+# clud-bug review gate (requires the clud-bug-review status check):
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo copilot --human-review
+  | bash -s -- owner/repo clud-bug
 
-# If you already use a non-Copilot AI reviewer (Claude Code Review, CodeRabbit, Cursor, …):
+# Public repo with outside contributors — require a HUMAN code-owner approval:
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo external
+  | bash -s -- owner/repo public-guard
 
 # Full clud-bug + logmind stack (canonical 4 contexts ship in the variant;
 # Repository admin bypass for clud-bug self-mod PRs is ON BY DEFAULT for
@@ -51,13 +49,13 @@ curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply
 `--extra-check 'CONTEXT NAME'` is repeatable and appends project-specific status
 check contexts to the variant's `required_status_checks` list at apply time. Lets
 a single command match a project's actual CI without forking the variant JSON.
-Only works against variants that ship `required_status_checks` (currently
-`skdd`); errors cleanly on `copilot`/`external` since they deliberately
+Only works against variants that ship `required_status_checks`
+(`skdd`, `clud-bug`); errors cleanly on `baseline`/`public-guard` since they deliberately
 omit that rule.
 
 `--bypass-admin` adds the **Repository admin** role to `bypass_actors`. **Default
 ON for `skdd`** (the self-mod use case practically always needs it);
-default OFF for `copilot`/`external`. Override the per-variant default with
+default OFF for `baseline`/`clud-bug`/`public-guard`. Override the per-variant default with
 `--no-bypass-admin` to force off, or `--bypass-admin` to force on. See
 [Admin bypass flag](#admin-bypass-flag) below for the rationale.
 
@@ -65,20 +63,23 @@ Requires the [`gh`](https://cli.github.com) CLI authenticated against the target
 
 ## Variants
 
-| Variant | Copilot auto-review | Required status checks | Use when |
+| Variant | Required status checks | Human approval | Use when |
 |---|---|---|---|
-| `copilot` (default) | enabled via the `copilot_code_review` ruleset rule | none — add manually after install | You want GitHub's built-in reviewer to comment on every PR. |
-| `external` | not included | none — add manually after install | You've installed a non-Copilot AI reviewer GitHub App that already comments on every PR — e.g. [**clud-bug**](https://github.com/thrillmade/clud-bug) (Claude-powered, project-aware, one-command install), CodeRabbit, Cursor, or Anthropic's Claude Code Review App. |
-| `skdd` | not included | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** (branches must be up to date) | The **canonical [SkDD](https://github.com/thrillmade/protocol)-toolchain ruleset** (protocol SPEC §7) — for any repo in the thrillmade toolchain ([**clud-bug**](https://github.com/thrillmade/clud-bug) / [**logmind**](https://logmind.dev) / protocol). Extends `external` with the four canonical check contexts the toolchain ships + strict-mode so logmind's derived-file conflict-free property stays sound. *(Renamed from `clud-bug-logmind`; that name still works as a deprecated alias.)* |
+| `baseline` (default) | none — structural floor only | no | Any repo, public or private — the secure minimum (PR required, no force-push/deletion, linear, squash-only, threads must resolve). Layer checks/approval as needed. *(`external` is a deprecated alias for `baseline`.)* |
+| `clud-bug` | `clud-bug-review` — **strict** | no | Repos that run [**clud-bug**](https://github.com/thrillmade/clud-bug) reviews and want the review to gate merges (but not logmind). |
+| `skdd` | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** | no | The **canonical [SkDD](https://github.com/thrillmade/protocol)-toolchain ruleset** (protocol SPEC §7) — thrillmade-toolchain repos ([**clud-bug**](https://github.com/thrillmade/clud-bug) / [**logmind**](https://logmind.dev) / protocol). Both tools must be installed. *(Renamed from `clud-bug-logmind`, still a deprecated alias.)* |
+| `public-guard` | none (advisory checks don't count) | **yes — code-owner, 1 approval** | **Public** repos with outside contributors: an outsider's fork PR needs a **human** maintainer/code-owner approval. A bot review check is advisory and never substitutes. Requires a CODEOWNERS file. |
+
+> The old `copilot` variant (GitHub's built-in reviewer) has been removed. An `agentic` variant — a scoped bot bypass for bot-merged internal PRs — is planned.
 
 > 💡 Pairs nicely with [**clud-bug**](https://github.com/thrillmade/clud-bug): a one-command (`npx clud-bug init`) install of a Claude PR-review GitHub Action that auto-discovers project-aware review skills from [skills.sh](https://skills.sh) and resolves its own review threads when issues are fixed — which is exactly what the `required_review_thread_resolution` gate in this ruleset is designed to lean on. This repo itself uses clud-bug; see PR #2 / #3 for live review examples.
 
-All three variants share the structural rules: PR required, force push and deletion blocked,
+All variants share the structural rules: PR required, force push and deletion blocked,
 linear history, squash-only merges, dismiss stale reviews, all threads must resolve.
-The `copilot` and `external` variants **deliberately omit** a `required_status_checks` rule
+The `baseline` and `public-guard` variants **deliberately omit** a `required_status_checks` rule
 (GitHub's API rejects an empty list, and we can't know your CI workflow names) — add the
-rule with your contexts manually after install. The `skdd` variant skips that
-manual step because we *do* know the canonical contexts when both tools are installed.
+rule with your contexts manually after install. The `clud-bug` and `skdd` variants ship that
+rule with the canonical contexts.
 
 > **Note on `skdd`'s strict mode:** `strict_required_status_checks_policy: true`
 > in this variant is load-bearing for logmind v0.2's per-PR derived-file model (`docs/timeline.md`
@@ -117,7 +118,7 @@ Pass `--human-review` only if you want to layer a human approver on top.
 - `skdd` → **ON by default** (the variant's self-mod use case practically
   always needs the bypass — without it every routine clud-bug self-mod deadlocks).
   Use `--no-bypass-admin` to opt out.
-- `copilot`, `external` → **OFF by default** (no built-in self-mod use case).
+- `baseline`, `clud-bug`, `public-guard` → **OFF by default** (no built-in self-mod use case).
   Pass `--bypass-admin` to opt in.
 
 **Why it matters for clud-bug:** `clud-bug`'s reviewer action (`anthropics/claude-code-action`)
@@ -155,7 +156,6 @@ The installer applies two things:
    - Block force pushes
    - Require linear history
    - Allowed merge methods: `squash`
-   - (copilot variant only) Copilot code review on every push, not on drafts
 
    The ruleset deliberately **does not include a `required_status_checks` rule**.
    GitHub's API rejects that rule with an empty list, and we can't know your CI
@@ -171,7 +171,7 @@ The script is idempotent — running it twice updates the existing ruleset inste
 ## After install — manual steps
 
 1. **Add a `Require status checks to pass` rule** with your CI workflow names.
-   - **`copilot` / `external` variants:** the ruleset ships without this rule
+   - **`baseline` / `public-guard` variants:** the ruleset ships without this rule
      (GitHub's API rejects an empty list, and we can't know your workflow names).
      Add it via Settings → Rules → Rulesets → `reporulez-default` → "Require
      status checks to pass".
@@ -219,8 +219,8 @@ The script is idempotent — running it twice updates the existing ruleset inste
    `.github/dependabot.yml` (consistent with how `--extra-check` and the
    other flags overwrite the ruleset on re-apply).
 
-   > **Known limitation** (ecosystem switch on re-apply, copilot/external
-   > only): switching the `--with-dependabot=<eco>` value on a repo
+   > **Known limitation** (ecosystem switch on re-apply, baseline/clud-bug/
+   > public-guard only): switching the `--with-dependabot=<eco>` value on a repo
    > that already has the ruleset applied will fail the contents PUT
    > because the existing ruleset's `pull_request` rule blocks direct
    > default-branch writes. The `--bypass-admin` flag does **not** help
@@ -230,15 +230,15 @@ The script is idempotent — running it twice updates the existing ruleset inste
    > repo's *existing* ruleset already contains Repository admin in
    > `bypass_actors`. For `skdd` that's the variant
    > default, so first-time AND ecosystem-switching applies both
-   > work. For `copilot`/`external`, only first-apply and idempotent
+   > work. For `baseline`/`clud-bug`/`public-guard`, only first-apply and idempotent
    > re-apply work without manual intervention; ecosystem-switching
    > requires either temporarily editing the existing ruleset on
    > GitHub (Settings → Rules → Rulesets → `reporulez-default` →
    > add Repository admin to `Bypass list`) or temporarily deleting
    > the existing ruleset before re-applying.
 3. **Verify entitlement / app install:**
-   - `copilot` variant: the repo must have Copilot code review available (Pro / Pro+ / Business).
-   - `external` variant: an AI reviewer GitHub App must be installed and configured.
+   - `clud-bug` variant: [clud-bug](https://github.com/thrillmade/clud-bug) must be installed —
+     the `clud-bug-review` check comes from its workflow; without it, PRs block forever under strict mode.
    - `skdd` variant: **both** [clud-bug](https://github.com/thrillmade/clud-bug)
      **and** [logmind](https://logmind.dev) must be installed on the target repo
      (run `npx clud-bug init` and `logmind init --all-agents --install-hook`).
@@ -286,7 +286,7 @@ structural rule types every reporulez variant ships:
 - `pull_request` rule (PRs required for default-branch writes)
 
 Variant-specific bits (`required_status_checks` contents,
-`bypass_actors` content, `copilot_code_review`) are intentionally
+`bypass_actors` content) are intentionally
 not checked — too variant-specific to flag generically.
 
 **Limitation**: `--all <owner>` uses `GET orgs/<owner>/repos`, which
@@ -327,7 +327,7 @@ If you don't want to run a shell script (e.g. inside CI), import the JSON direct
 
 ```sh
 gh api --method POST repos/owner/repo/rulesets \
-  --input rulesets/copilot.json
+  --input rulesets/baseline.json
 ```
 
 To require a human approval in this path, edit the JSON's `required_approving_review_count` to `1` first.

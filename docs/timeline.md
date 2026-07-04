@@ -13,6 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
+## 2026-07
+
+- **2026-07-03** — reporulez: purpose-named ruleset taxonomy — drop copilot, external→baseline, +clud-bug +public-guard *(reporulez-taxonomy)* — [decisions-branches/reporulez-taxonomy.md](decisions-branches/reporulez-taxonomy.md)
+
 ## 2026-06 (10 decisions)
 
 - **2026-06-29** — rename reporulez variant clud-bug-logmind -> skdd (the canonical SkDD-toolchain ruleset) *(rename-skdd-variant)* — [decisions-branches/rename-skdd-variant.md](decisions-branches/rename-skdd-variant.md)
