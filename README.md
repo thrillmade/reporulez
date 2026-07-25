@@ -66,8 +66,8 @@ Requires the [`gh`](https://cli.github.com) CLI authenticated against the target
 | Variant | Required status checks | Human approval | Use when |
 |---|---|---|---|
 | `baseline` (default) | none — structural floor only | no | Any repo, public or private — the secure minimum (PR required, no force-push/deletion, linear, squash-only, threads must resolve). Layer checks/approval as needed. *(`external` is a deprecated alias for `baseline`.)* |
-| `clud-bug` | `clud-bug-review` — **strict** | no | Repos that run [**clud-bug**](https://github.com/thrillmade/clud-bug) reviews and want the review to gate merges (but not logmind). |
-| `skdd` | `clud-bug-review`, `check-derived-docs`, `check-decisions`, `check-links` — **strict** | no | The **canonical [SkDD](https://github.com/thrillmade/protocol)-toolchain ruleset** (protocol SPEC §7) — thrillmade-toolchain repos ([**clud-bug**](https://github.com/thrillmade/clud-bug) / [**logmind**](https://logmind.dev) / protocol). Both tools must be installed. *(Renamed from `clud-bug-logmind`, still a deprecated alias.)* |
+| `clud-bug` | `clud-bug-review` (pinned to App `3944857`) — **strict** | no | Repos that run [**clud-bug**](https://github.com/thrillmade/clud-bug) reviews and want the review to gate merges (but not logmind). |
+| `skdd` | `clud-bug-review` (pinned to App `3944857`), `check-derived-docs`, `check-decisions`, `check-links` — **strict** | no | The **canonical [SkDD](https://github.com/thrillmade/protocol)-toolchain ruleset** (protocol SPEC §7) — thrillmade-toolchain repos ([**clud-bug**](https://github.com/thrillmade/clud-bug) / [**logmind**](https://logmind.dev) / protocol). Both tools must be installed. *(Renamed from `clud-bug-logmind`, still a deprecated alias.)* |
 | `public-guard` | none (advisory checks don't count) | **yes — code-owner, 1 approval** | **Public** repos with outside contributors: an outsider's fork PR needs a **human** maintainer/code-owner approval. A bot review check is advisory and never substitutes. Requires a CODEOWNERS file. |
 
 > The old `copilot` variant (GitHub's built-in reviewer) has been removed. An `agentic` variant — a scoped bot bypass for bot-merged internal PRs — is planned.
@@ -80,6 +80,20 @@ The `baseline` and `public-guard` variants **deliberately omit** a `required_sta
 (GitHub's API rejects an empty list, and we can't know your CI workflow names) — add the
 rule with your contexts manually after install. The `clud-bug` and `skdd` variants ship that
 rule with the canonical contexts.
+
+> **Un-forgeability (`integration_id` pin):** the `clud-bug-review` entry in both the
+> `clud-bug` and `skdd` variants pins `"integration_id": 3944857` — the `clud-bug[bot]`
+> GitHub App's own ID — in addition to the `context` name. Without it, `context` alone is
+> forgeable: **any** token with `statuses:write` (a PAT, a workflow's default
+> `GITHUB_TOKEN`, another app) can post a check named `clud-bug-review` and satisfy the
+> gate, and because GitHub resolves a required status check by taking the latest
+> report for that context/name, a forged report posted after the real one wins. Per
+> GitHub's docs, once `integration_id` is set, "if the status is set by any other
+> person or integration, merging won't be allowed" — only App `3944857` can satisfy
+> that entry. `check-derived-docs`/`check-decisions`/`check-links` in `skdd` are
+> deliberately left context-only: they're plain Actions workflow checks (no dedicated
+> App id to pin). See [`bin/verify-integration-id-pin.sh`](bin/verify-integration-id-pin.sh)
+> for the forged-vs-genuine verification harness and manual run instructions.
 
 > **Note on `skdd`'s strict mode:** `strict_required_status_checks_policy: true`
 > in this variant is load-bearing for logmind v0.2's per-PR derived-file model (`docs/timeline.md`

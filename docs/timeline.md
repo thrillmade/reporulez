@@ -13,9 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-07
+## 2026-07 (3 decisions)
 
-- **2026-07-04** — reporulez: org-level baseline ruleset support (apply-org.sh + org-baseline.json) *(reporulez-org-level)* — [decisions-branches/reporulez-org-level.md](decisions-branches/reporulez-org-level.md)
+- **2026-07-25** — Z6: pin clud-bug-review required_status_checks to integration_id 3944857 (config only, not applied) *(feat-z6-integration-id-pin)* — [decisions-branches/feat-z6-integration-id-pin.md](decisions-branches/feat-z6-integration-id-pin.md)
+- *... 1 more decision ...*
 - **2026-07-03** — reporulez: purpose-named ruleset taxonomy — drop copilot, external→baseline, +clud-bug +public-guard *(reporulez-taxonomy)* — [decisions-branches/reporulez-taxonomy.md](decisions-branches/reporulez-taxonomy.md)
 
 ## 2026-06 (10 decisions)
