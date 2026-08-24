@@ -48,3 +48,14 @@
 
 ---
 
+## 2026-08-24 12:20 - Correct two claims in this branch's own record: a misattributed citation and an undercounted mutation
+
+**Reasoning:** The third panel verified every citation against primary sources and found one wrong. The header and the previous decision entry both said 'a ruleset's own allow_deletions field is documented the same way'. allow_deletions is a field of CLASSIC BRANCH PROTECTION, not the Rulesets API -- a ruleset's deletion rule takes no parameters at all, and the one this repo ships is the bare {"type": "deletion"}, verified with jq. The quote is real and the wording does corroborate the claim; the attribution was wrong. In a file whose entire subject is not overstating a claim, a citation that does not say what it is cited for is the defect itself. The two REST citations carry the claim on their own, so nothing downstream changes.
+
+**Alternatives considered:** Edit the previous entry in place. Refused: 3.2 makes this file append-only, and the misattribution is worth seeing alongside its correction. Drop the allow_deletions sentence entirely rather than reattributing it: rejected, it IS corroborating evidence and deleting it would lose a real supporting source to hide an error of attribution.
+
+**Implications:**
+- Also correcting this branch's own mutation table: it reported the severity-flip mutation as 4 red; the panel measured 5 distinct failing cases. Wrong in the SAFE direction -- the guard's coverage is broader than claimed -- but a number nobody can reproduce is exactly what the house rule forbids, and this is the third recited number of the day to fail reproduction. README's one-line summary of the open gap named two unflagged bypass shapes and omitted Team, which the script header lists; now names all three. Panel verdict on the rebuild itself: MERGE, 0 blocking -- the first pass on this PR to find no blocking defect, after two that did.
+
+---
+

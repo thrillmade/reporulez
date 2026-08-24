@@ -94,9 +94,15 @@
 #     and the REST API's `DELETE /repos/{owner}/{repo}/git/refs/{ref}`
 #     requires only `Contents` repository permission `write`, not admin
 #     (https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28#delete-a-reference).
-#     A ruleset's own `allow_deletions` field is documented the same way:
-#     "Allows deletion of the protected branch by anyone with write access
-#     to the repository." So an admin-only bypass (`RepositoryRole` `admin`
+#     The same wording appears on CLASSIC BRANCH PROTECTION's
+#     `allow_deletions` field -- "Allows deletion of the protected branch by
+#     anyone with write access to the repository" -- which is corroborating
+#     but is NOT a rulesets field, and an earlier version of this comment
+#     misattributed it to one. A ruleset's `deletion` rule takes no
+#     parameters at all; it is the bare `{"type": "deletion"}` this repo
+#     ships, described only as "Only allow users with bypass permissions to
+#     delete matching refs." The two REST citations above carry the claim on
+#     their own. So an admin-only bypass (`RepositoryRole` `admin`
 #     id=5, and/or `OrganizationAdmin`) still restricts every real Write-
 #     or Maintain-role holder who is not ALSO admin-level — it protects
 #     someone, and "protects nobody" was wrong. Independently confirmed on

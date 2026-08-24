@@ -403,8 +403,8 @@ What it checks:
   incident: an org ruleset on `thrillmade/agent-skills` was `Active`,
   targeted `dev`, and had "Restrict deletions" checked, and `dev` was
   deleted anyway — via bypass entries this check still does *not* flag at
-  any severity (an unrecognized `RepositoryRole` id and an `Integration`
-  entry, neither provably admin-level; see the script's own header comment
+  any severity (an unrecognized `RepositoryRole` id, a `Team`, or an
+  `Integration` entry, none provably admin-level; see the script's own header
   for that open gap). `RepositoryRole` `admin` alone (no
   `OrganizationAdmin`) is not flagged at all, not even as a warning — a
   stated assumption, not a citation (GitHub doesn't document whether
