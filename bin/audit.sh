@@ -212,7 +212,7 @@ audit_ruleset() {
   # admin-bypass-required are not "does bypass_actors match variant X",
   # they are "is bypass_actors internally self-defeating", which holds
   # regardless of variant. That is why they belong here despite the
-  # existing note below about not checking bypass_actors content generically.
+  # existing note above about not checking bypass_actors content generically.
   if [[ ${#field_violations[@]} -eq 0 ]]; then
     lines+=("$(printf '  ✓ %-32s = no violations' "ruleset.field_validation")")
   else
