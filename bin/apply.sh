@@ -200,6 +200,23 @@ CLEANUP_FILES=()
 cleanup() { [[ ${#CLEANUP_FILES[@]} -gt 0 ]] && rm -f "${CLEANUP_FILES[@]}" || true; }
 trap cleanup EXIT
 
+# Validate the FINAL ruleset JSON — after every --human-review /
+# --bypass-admin / --extra-check patch above — before anything below makes
+# a single mutating call. reporulez#68: nothing checked a ruleset's
+# contents before it changed branch protection on a real repo; this runs
+# first and refuses outright rather than applying something invalid. Same
+# local-checkout-or-fetch fallback as the ruleset JSON itself.
+VALIDATOR="$SCRIPT_DIR/validate-ruleset.sh"
+if [[ ! -f "$VALIDATOR" ]]; then
+  VALIDATOR="$(mktemp)"
+  CLEANUP_FILES+=("$VALIDATOR")
+  curl -fsSL "$RAW_BASE/bin/validate-ruleset.sh" -o "$VALIDATOR" \
+    || die "failed to fetch validator: $RAW_BASE/bin/validate-ruleset.sh"
+fi
+info "Validating ruleset against required fields before applying anything to $REPO"
+echo "$RULESET_JSON" | bash "$VALIDATOR" - \
+  || die "ruleset failed pre-apply validation (see above) — refusing to apply an invalid ruleset to $REPO"
+
 # 1. Tune repo-level settings that rulesets cannot control. Step 1 is
 #    safe at any point — it doesn't write to the default branch.
 info "Configuring repo settings on $REPO (auto-merge, squash-only, delete-on-merge)"

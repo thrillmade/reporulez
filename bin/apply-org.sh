@@ -95,10 +95,27 @@ EXISTING_ID="$(echo "$RULESETS_JSON" \
   | jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' \
   | head -n1)"
 
-cleanup() { [[ -n "${TMP_JSON:-}" ]] && rm -f "$TMP_JSON" || true; }
+cleanup() {
+  [[ -n "${TMP_JSON:-}" ]] && rm -f "$TMP_JSON" || true
+  [[ -n "${VALIDATOR_TMP:-}" ]] && rm -f "$VALIDATOR_TMP" || true
+}
 trap cleanup EXIT
 TMP_JSON="$(mktemp)"
 echo "$RULESET_JSON" > "$TMP_JSON"
+
+# Validate before this ruleset changes branch protection on EVERY
+# repository in the org at once -- reporulez#68's entire point. Same
+# local-checkout-or-fetch fallback as the ruleset JSON itself.
+VALIDATOR="$SCRIPT_DIR/validate-ruleset.sh"
+if [[ ! -f "$VALIDATOR" ]]; then
+  VALIDATOR_TMP="$(mktemp)"
+  VALIDATOR="$VALIDATOR_TMP"
+  curl -fsSL "$RAW_BASE/bin/validate-ruleset.sh" -o "$VALIDATOR" \
+    || die "failed to fetch validator: $RAW_BASE/bin/validate-ruleset.sh"
+fi
+info "Validating org ruleset against required fields before applying to '$ORG'"
+echo "$RULESET_JSON" | bash "$VALIDATOR" - \
+  || die "ruleset failed pre-apply validation (see above) — refusing to apply an invalid ruleset org-wide to '$ORG'"
 
 if [[ -n "$EXISTING_ID" ]]; then
   info "Updating existing org ruleset '$RULESET_NAME' (id=$EXISTING_ID) on $ORG"

@@ -302,6 +302,56 @@ The script is idempotent — running it twice updates the existing ruleset inste
      those tools' workflows; if either tool is missing, those checks will never
      report and every PR will block forever (`strict_required_status_checks_policy: true`).
 
+## Validating a ruleset before it applies
+
+Nothing checked a ruleset's *contents* before it was POST/PUT to a repository
+or an entire org — only its JSON syntax. An invalid or incomplete ruleset
+applied org-wide changes branch protection on every repository at once,
+silently ([reporulez#68](https://github.com/thrillmade/reporulez/issues/68)).
+
+`bin/validate-ruleset.sh` closes that gap. `apply.sh` and `apply-org.sh` run
+it on the FINAL ruleset JSON — after every `--bypass-admin` / `--extra-check`
+/ `--human-review` patch — right before the POST/PUT, and refuse to apply on
+any violation, before either script has made a single mutating call.
+`audit.sh --include-ruleset` runs it read-only against every already-applied
+ruleset it fetches, so a hand-edit made after `apply.sh` ran (in the GitHub
+UI, say) is caught too — not just what reporulez itself would have shipped.
+
+It is also a standalone tool: point it at any ruleset JSON and it checks the
+same fields, with no reporulez-specific assumptions.
+
+```sh
+./bin/validate-ruleset.sh rulesets/skdd.json
+echo "$RULESET_JSON" | ./bin/validate-ruleset.sh -
+gh api repos/owner/repo/rulesets/12345 | ./bin/validate-ruleset.sh -
+```
+
+What it checks:
+
+- **`integration-id-pin`** — every `clud-bug-review` required check must pin
+  `integration_id: 3944857` (the clud-bug[bot] App's own id). An unpinned
+  check is forgeable by any token with `statuses:write`.
+- **`admin-bypass-required`** — `bypass_actors` must carry a bypass a
+  repository administrator can actually use (`RepositoryRole` `admin`
+  id=5, or `OrganizationAdmin`). A ruleset with no bypass at all blocks
+  its own repair.
+- **`bypass-defeats-deletion-restriction`** — a `deletion` rule whose
+  `bypass_actors` grants an always-bypass to BOTH `RepositoryRole` `admin`
+  (id=5) AND `OrganizationAdmin` protects nobody who could otherwise have
+  deleted the branch — every person with admin-level access to the repo is
+  covered either way. Written after a live incident: an org ruleset on
+  `thrillmade/agent-skills` was `Active`, targeted `dev`, and had "Restrict
+  deletions" checked, and `dev` was deleted anyway, because its bypass list
+  already covered every admin-level actor. See the script's own header
+  comment for the full account, including why the check does not also name
+  a third role (GitHub does not publish a stable numeric-id mapping for
+  anything but `RepositoryRole` `admin = 5`, and guessing one would not
+  have caught the actual incident).
+
+Exit codes: `0` valid, `1` invalid (violations printed, one per line), `2`
+usage/input error (bad path, unreadable stdin, not valid JSON) — a ruleset
+this script could not read is never reported as passing.
+
 ## Auditing drift across repos
 
 Once `apply.sh` has run on a repo, its canonical settings (auto-merge,
@@ -341,9 +391,17 @@ structural rule types every reporulez variant ships:
 - `required_linear_history` rule (squash-only merge history)
 - `pull_request` rule (PRs required for default-branch writes)
 
-Variant-specific bits (`required_status_checks` contents,
-`bypass_actors` content) are intentionally
-not checked — too variant-specific to flag generically.
+Whether `required_status_checks` or `bypass_actors` CONTENT matches a
+particular variant's expected value is intentionally not checked here —
+too variant-specific to flag generically. It also runs
+[`bin/validate-ruleset.sh`](bin/validate-ruleset.sh) (reporulez#68) read-only
+against each active ruleset's live JSON, which checks field validity that
+holds regardless of variant: every `clud-bug-review` required check is
+pinned to the correct App id, an admin bypass exists at all, and a
+`deletion` rule's own bypass list doesn't cover every admin-level actor
+capable of performing the deletion it restricts. `apply.sh` and
+`apply-org.sh` run the same script as a hard gate before every POST/PUT —
+see [Validating a ruleset before it applies](#validating-a-ruleset-before-it-applies).
 
 **Limitation**: `--all <owner>` uses `GET orgs/<owner>/repos`, which
 404s on personal accounts. Works for any GitHub org. For personal

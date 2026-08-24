@@ -28,7 +28,12 @@
 #   --include-ruleset  Also check that each repo has active ruleset
 #                      coverage with the structural rule types every
 #                      reporulez variant ships (deletion + non-fast-
-#                      forward + required-linear-history + pull-request).
+#                      forward + required-linear-history + pull-request),
+#                      AND run bin/validate-ruleset.sh (reporulez#68) read-
+#                      only against each active ruleset's live JSON --
+#                      catches a hand-edit that broadened bypass_actors or
+#                      dropped an integration_id pin after apply.sh ran,
+#                      not just what reporulez itself would have shipped.
 #                      Opt-in because it adds 2 API calls per repo.
 #
 # What it checks (everything `apply.sh` sets via `gh api PATCH repos/`):
@@ -55,16 +60,24 @@ usage() {
   sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
 }
 
+# audit.sh is always run from a local checkout (never curl-piped, unlike
+# apply.sh/apply-org.sh -- see README), so unlike those two this can
+# reference a sibling script directly with no curl fallback.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VALIDATOR="$SCRIPT_DIR/validate-ruleset.sh"
+
 # Defaults — flipped by --strict / --quiet / --include-ruleset flags below.
 STRICT="false"
 QUIET="false"
 INCLUDE_RULESET="false"
 
 # Structural ruleset invariants every reporulez variant ships. A ruleset
-# missing any of these is drift, regardless of variant. (Variant-specific
-# rules — required_status_checks contents, bypass_actors content,
-# copilot_code_review — are intentionally NOT checked here: too variant-
-# specific to flag generically.)
+# missing any of these is drift, regardless of variant. (Whether
+# required_status_checks or bypass_actors CONTENT matches a particular
+# variant's expected value is intentionally NOT checked here: too variant-
+# specific to flag generically. Field-level validity that holds regardless
+# of variant -- an admin bypass exists at all, a deletion rule's bypass
+# doesn't defeat it -- IS checked, via bin/validate-ruleset.sh below.)
 REQUIRED_RULESET_RULE_TYPES=(
   deletion
   non_fast_forward
@@ -129,6 +142,7 @@ audit_ruleset() {
   local seen_types=""
   local rid
   local fetch_failures=()
+  local field_violations=()
   while IFS= read -r rid; do
     local detail
     if ! detail="$(gh api "repos/$repo/rulesets/$rid" 2>&1)"; then
@@ -136,6 +150,37 @@ audit_ruleset() {
       continue
     fi
     seen_types="$seen_types $(printf '%s' "$detail" | jq -r '.rules[].type' | tr '\n' ' ')"
+
+    # reporulez#68's field validation, run read-only against the LIVE
+    # ruleset -- not just what apply.sh/apply-org.sh would have shipped.
+    # Catches drift that neither of those scripts could ever see: a
+    # ruleset hand-edited in the GitHub UI after apply.sh ran (e.g.
+    # bypass_actors broadened past what any variant ships), which is
+    # exactly the shape of the 2026-08-14 agent-skills/dev incident this
+    # script's bypass-defeats-deletion-restriction check exists for.
+    # Skipped (not failed) when the validator isn't present locally --
+    # audit.sh never curl-fetches a sibling script, and a missing
+    # validator is a reason to say so, not a reason to report false drift.
+    if [[ -f "$VALIDATOR" ]]; then
+      local val_output val_exit
+      # NOT `val_output="$(...)"; val_exit=$?` -- under `set -e`, a bare
+      # assignment from a failing command substitution aborts the whole
+      # script right here (a real bug this had, caught by actually running
+      # it against a ruleset with a violation instead of only ones without
+      # one). The `if` tests the status, which is what exempts it.
+      if val_output="$(printf '%s' "$detail" | bash "$VALIDATOR" - 2>&1)"; then
+        val_exit=0
+      else
+        val_exit=$?
+      fi
+      if [[ "$val_exit" -eq 1 ]]; then
+        while IFS= read -r vline; do
+          [[ "$vline" == "✗"* ]] && field_violations+=("(ruleset id=$rid) $vline")
+        done <<< "$val_output"
+      elif [[ "$val_exit" -ge 2 ]]; then
+        field_violations+=("(ruleset id=$rid) could not run field validation: $val_output")
+      fi
+    fi
   done <<< "$active_ids"
 
   if [[ ${#fetch_failures[@]} -gt 0 ]]; then
@@ -160,6 +205,24 @@ audit_ruleset() {
       DRIFT_FOUND=1
     fi
   done
+
+  # Field-validation results collected above. Unlike REQUIRED_RULESET_RULE_TYPES
+  # (fixed rule-type presence, true for every variant), these ARE variant-
+  # specific in general -- but bypass-defeats-deletion-restriction and
+  # admin-bypass-required are not "does bypass_actors match variant X",
+  # they are "is bypass_actors internally self-defeating", which holds
+  # regardless of variant. That is why they belong here despite the
+  # existing note below about not checking bypass_actors content generically.
+  if [[ ${#field_violations[@]} -eq 0 ]]; then
+    lines+=("$(printf '  ✓ %-32s = no violations' "ruleset.field_validation")")
+  else
+    local fv
+    for fv in "${field_violations[@]}"; do
+      lines+=("$(printf '  ✗ %-32s = %s' "ruleset.field_validation" "$fv")")
+    done
+    repo_has_drift=1
+    DRIFT_FOUND=1
+  fi
 }
 
 audit_one() {
