@@ -177,10 +177,12 @@ holds no explicit Admin role on this specific repo is not something GitHub docum
 open question, and why `bin/validate-ruleset.sh` assumes the narrower reading). If you want an
 org owner covered unconditionally, add a *separate* org-administrator bypass entry
 (`actor_type: OrganizationAdmin`, `actor_id: 1`) manually after install — including it by
-default would 404 on personal repos, and per `bypass-defeats-deletion-restriction` it will make
-`validate-ruleset.sh` refuse this ruleset once you also carry a `deletion` rule (which every
-variant here does), since GitHub gives every org owner admin access to every repo in the org
-unconditionally, making that bypass alone enough to defeat "restrict deletions" for all of them.
+default would 404 on personal repos. Doing so on a ruleset that also carries a `deletion` rule
+(which every variant here does) trips `bypass-defeats-deletion-restriction`, but only as a
+WARNING, not a refusal: deleting a branch requires write access, not admin, so the bypass
+doesn't excuse anyone below admin-level — it just also excuses every org owner, unconditionally,
+which is worth knowing, not worth blocking. See [Validating a ruleset before it applies]
+(#validating-a-ruleset-before-it-applies) for the full reasoning.
 
 ## Org-level baseline
 
@@ -200,24 +202,31 @@ repos created *after* you run it, so new repos are protected the moment they exi
 per-repo follow-up.
 
 **What it enforces (org-wide floor):** PRs required (no direct default-branch pushes), force
-pushes blocked, default-branch deletion blocked. A **Repository admin** bypass (`RepositoryRole`
-`admin`, id=5, `bypass_mode: always`) is baked in so a repo's own admins can unstick an edge case
-without disabling the ruleset. It is deliberately minimal — it omits the linear-history /
-squash-only / thread-resolution opinions the per-repo variants carry, so it never breaks a repo
-that legitimately wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
+pushes blocked, default-branch deletion blocked. An **`OrganizationAdmin`** bypass
+(`bypass_mode: always`) is baked in so any org owner can unstick an edge case on any repo the
+floor covers — including a repo created *after* this ran, which by definition has no per-repo
+bypass configured yet. It is deliberately minimal — it omits the linear-history / squash-only /
+thread-resolution opinions the per-repo variants carry, so it never breaks a repo that
+legitimately wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
 
-> **Why `RepositoryRole` `admin` and not `OrganizationAdmin`, given this ruleset carries a
-> `deletion` rule:** it used to be `OrganizationAdmin`. `bin/validate-ruleset.sh`'s
-> `bypass-defeats-deletion-restriction` check now flags that combination — GitHub gives every
-> organization owner admin access to every repository the org owns, unconditionally (see
-> [Validating a ruleset before it applies](#validating-a-ruleset-before-it-applies)), so an
-> `OrganizationAdmin` always-bypass on a `deletion` rule was already defeating that rule for
-> every org owner, org-wide, in exactly the shape of the incident the check exists for. Switching
-> to `RepositoryRole` `admin` is a real behavior change, not just a label swap: the bypass is now
-> scoped to whoever holds the Admin role on *that specific repo*, rather than every org owner
-> everywhere. An org owner who holds no explicit Admin role on a given repo may no longer be able
-> to unstick an edge case there through this org-wide bypass alone — they'd need to be granted
-> that repo's Admin role, or rely on a per-repo `bin/apply.sh` ruleset's own bypass instead.
+> **Why `OrganizationAdmin` and not `RepositoryRole` `admin`, given this ruleset carries a
+> `deletion` rule:** `bin/validate-ruleset.sh`'s `bypass-defeats-deletion-restriction` check
+> flags this combination, but only as a WARNING — it does not block applying this ruleset, and
+> should not: deleting a branch requires only write access, not admin (see [Validating a ruleset
+> before it applies](#validating-a-ruleset-before-it-applies)), so this bypass does not excuse
+> anyone below admin-level; every real Write-/Maintain-role holder stays restricted. A prior
+> version of this ruleset swapped to `RepositoryRole` `admin` (id=5) specifically to silence that
+> check when it was still an ERROR — that traded a bypass GitHub documents as **provably
+> complete** (every org owner has admin access to every repo the org owns, unconditionally) for
+> one whose completeness this repo's own validator script calls "an ASSUMPTION, not a citation"
+> (does ruleset bypass matching use a user's *assigned* repo role, or their *effective*
+> permission — GitHub does not document which). For an org-wide floor that must hold on a repo
+> nobody has configured a `RepositoryRole` grant on yet — precisely the "repos created in the
+> future" case this script exists for — the unproven bypass is the wrong one to ship as the
+> default, so this reverted back to `OrganizationAdmin` once the check stopped hard-blocking it.
+> If you want a *narrower*, repo-scoped bypass instead (accepting that an org owner with no
+> explicit Admin role on a given repo won't be able to unstick an edge case there through this
+> org-wide floor alone), swap the bypass entry to `RepositoryRole` `admin` (id=5) yourself.
 
 **It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
 ruleset that targets a branch, and a write must satisfy **all** of them. So the org floor and
@@ -363,34 +372,49 @@ echo "$RULESET_JSON" | ./bin/validate-ruleset.sh -
 gh api repos/owner/repo/rulesets/12345 | ./bin/validate-ruleset.sh -
 ```
 
+Two severities. **ERROR** (`✗`) makes the ruleset invalid and blocks apply.sh
+/ apply-org.sh. **WARNING** (`⚠`) prints but never blocks — it flags a
+design choice worth reconsidering on a ruleset that already conforms to
+every SPEC requirement this script checks.
+
 What it checks:
 
-- **`integration-id-pin`** — every `clud-bug-review` required check must pin
-  `integration_id: 3944857` (the clud-bug[bot] App's own id). An unpinned
-  check is forgeable by any token with `statuses:write`.
-- **`admin-bypass-required`** — `bypass_actors` must carry a bypass a
-  repository administrator can actually use (`RepositoryRole` `admin`
+- **`integration-id-pin`** (ERROR) — every `clud-bug-review` required check
+  must pin `integration_id: 3944857` (the clud-bug[bot] App's own id). An
+  unpinned check is forgeable by any token with `statuses:write`.
+- **`admin-bypass-required`** (ERROR) — `bypass_actors` must carry a bypass
+  a repository administrator can actually use (`RepositoryRole` `admin`
   id=5, or `OrganizationAdmin`). A ruleset with no bypass at all blocks
   its own repair.
-- **`bypass-defeats-deletion-restriction`** — a `deletion` rule whose
-  `bypass_actors` grants an always-bypass to `OrganizationAdmin` protects
-  nobody who could otherwise have deleted the branch, on its own: GitHub
-  gives every organization owner admin access to every repository the org
-  owns, unconditionally, so that bypass alone is already every org owner's
-  real admin-level access to the repo — whether or not a `RepositoryRole`
-  `admin` (id=5) bypass is *also* present. Written after a live incident: an
-  org ruleset on `thrillmade/agent-skills` was `Active`, targeted `dev`, and
-  had "Restrict deletions" checked, and `dev` was deleted anyway, because
-  its bypass list already covered every admin-level actor. `RepositoryRole`
-  `admin` alone (no `OrganizationAdmin`) is not flagged — that's a stated
-  assumption, not a citation (GitHub doesn't document whether ruleset
-  bypass matching for `RepositoryRole` uses a user's assigned role or their
-  effective permission, which for an org owner is always "admin"). See the
-  script's own header comment for the full account, the citation for the
-  `OrganizationAdmin` half, and what would falsify the `RepositoryRole`
-  assumption.
+- **`bypass-defeats-deletion-restriction`** (WARNING) — a `deletion` rule
+  whose `bypass_actors` grants an always-bypass to `OrganizationAdmin` is
+  worth a second look, not a refusal. Deleting a branch requires only write
+  access, not admin, so this bypass does **not** "protect nobody" — an
+  earlier version of this check claimed exactly that, which GitHub's own
+  docs refute (an admin-only bypass still restricts every real
+  Write-/Maintain-role holder). What *is* true: `OrganizationAdmin` excuses
+  every organization owner unconditionally — a population nobody
+  administers per-repository, unlike `RepositoryRole` `admin` (id=5), which
+  is scoped to whoever holds *this* repo's own Admin role. SPEC section 6.6
+  requires every ruleset carry an admin bypass so a gate can't block the
+  fix to its own workflow; restoring a deleted branch isn't editing a
+  gate's workflow, so that rationale doesn't obviously require the
+  org-wide reach specifically for a `deletion` rule. Written after a live
+  incident: an org ruleset on `thrillmade/agent-skills` was `Active`,
+  targeted `dev`, and had "Restrict deletions" checked, and `dev` was
+  deleted anyway — via bypass entries this check still does *not* flag at
+  any severity (an unrecognized `RepositoryRole` id and an `Integration`
+  entry, neither provably admin-level; see the script's own header comment
+  for that open gap). `RepositoryRole` `admin` alone (no
+  `OrganizationAdmin`) is not flagged at all, not even as a warning — a
+  stated assumption, not a citation (GitHub doesn't document whether
+  ruleset bypass matching for `RepositoryRole` uses a user's assigned role
+  or their effective permission, which for an org owner is always
+  "admin"). See the script's own header comment for the full account, the
+  citations, and what would falsify the `RepositoryRole` assumption.
 
-Exit codes: `0` valid, `1` invalid (violations printed, one per line), `2`
+Exit codes: `0` no ERROR-severity violation (any WARNING still prints), `1`
+one or more ERROR-severity violations (printed, one per line), `2`
 usage/input error (bad path, unreadable stdin, not valid JSON) — a ruleset
 this script could not read is never reported as passing.
 

@@ -7,12 +7,15 @@
 # created in the future — with one ruleset, instead of running bin/apply.sh
 # once per repo. The only variant today is `org-baseline` (the default): a
 # minimal structural floor (PR required, no force-push, no default-branch
-# deletion) that applies org-wide with a Repository admin bypass baked in
-# (RepositoryRole "admin", id=5 -- not OrganizationAdmin: see
+# deletion) that applies org-wide with an OrganizationAdmin bypass baked in
+# -- not RepositoryRole "admin" (id=5): a repo created by this floor's own
+# "including future repos" promise has no per-repo Admin grant to match
+# against yet, and GitHub documents OrganizationAdmin as provably covering
+# every org owner on every repo, present and future, unconditionally. See
 # rulesets/org-baseline.json's own bypass_actors and README's "Org-level
-# baseline" section for why bin/validate-ruleset.sh's
-# bypass-defeats-deletion-restriction check rules out OrganizationAdmin on
-# a ruleset that carries a deletion rule, which this one does).
+# baseline" section for the full reasoning, including why
+# bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check warns
+# (not blocks) on this shape.
 #
 # Org-level and repo-level rulesets LAYER — GitHub evaluates every ruleset
 # that targets a branch and a write must satisfy all of them. This script
@@ -140,11 +143,13 @@ What this does:
   - Protects the default branch of EVERY repo in '$ORG', including future repos.
   - PRs required (no direct default-branch pushes), force pushes blocked,
     default-branch deletion blocked.
-  - Repository admin (RepositoryRole "admin", per-repo) can bypass
-    (bypass_mode=always) on a given repo to unstick an edge case there
-    without disabling the ruleset. This does NOT cover an org owner who
-    holds no explicit Admin role on that specific repo -- see README's
-    "Org-level baseline" section for why (bypass-defeats-deletion-restriction).
+  - Any organization owner (OrganizationAdmin, bypass_mode=always) can
+    bypass on any repo the floor covers, including one created after this
+    ran, to unstick an edge case there without disabling the ruleset.
+    bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check
+    notes this as a WARNING, not a block -- see README's "Org-level
+    baseline" section for why that bypass, not a per-repo one, is the
+    right default here.
 
 Notes:
   - This LAYERS with any per-repo rulesets from bin/apply.sh — it never

@@ -80,6 +80,32 @@ for f in "$REPO_ROOT"/rulesets/*.json; do
     "$VALIDATOR" "$f"
 done
 
+# org-baseline.json specifically ships OrganizationAdmin (not RepositoryRole
+# admin) as its bypass, and does so ON PURPOSE (reporulez PR #69 panel, pass
+# 2): it is the org-WIDE floor apply-org.sh advertises as protecting "EVERY
+# repo in the org... including repos created in the future," and
+# OrganizationAdmin is the only bypass GitHub documents as PROVABLY covering
+# every org owner on every repo, present and future, unconditionally.
+# RepositoryRole admin (id=5) alone rests on an assumption this script's own
+# header comment calls "an ASSUMPTION, not a citation" (does ruleset bypass
+# matching use a user's assigned role or their effective permission) -- the
+# wrong bypass to pick for a default that must hold on a repo nobody has
+# configured yet. This was reverted from a prior swap to RepositoryRole
+# admin made ONLY to satisfy this check when it was still ERROR severity;
+# now that it is WARNING, that swap had no justification left. Pinned two
+# ways so either a hand-edit of the JSON or a future re-swap is caught:
+assert_case "org-baseline.json's bypass warns (still carries OrganizationAdmin, on purpose)" 0 \
+  "⚠ [bypass-defeats-deletion-restriction]" \
+  "$VALIDATOR" "$REPO_ROOT/rulesets/org-baseline.json"
+
+ORG_BASELINE_BYPASS_TYPE="$(jq -r '.bypass_actors[0].actor_type' "$REPO_ROOT/rulesets/org-baseline.json")"
+if [[ "$ORG_BASELINE_BYPASS_TYPE" == "OrganizationAdmin" ]]; then
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: rulesets/org-baseline.json's bypass_actors[0].actor_type is \"$ORG_BASELINE_BYPASS_TYPE\", expected \"OrganizationAdmin\" -- see the comment above this check for why"
+  FAIL=$((FAIL + 1))
+fi
+
 assert_case "stdin mode ('-') works" 0 \
   "is valid" \
   bash -c "cat '$FIXTURES/valid-full.json' | '$VALIDATOR' -"
@@ -114,7 +140,7 @@ assert_case "omitted bypass_actors key is flagged (not a jq crash)" 1 \
   "[admin-bypass-required]" \
   "$VALIDATOR" "$FIXTURES/no-bypass-actors-key.json"
 
-# --- bypass-defeats-deletion-restriction (this repo's own rule) --------
+# --- bypass-defeats-deletion-restriction (this repo's own rule, WARNING) -
 #
 # bypass-defeats-deletion.json is not a hypothetical: its bypass_actors and
 # rules are copied field-for-field from the LIVE `org-staging` ruleset on
@@ -123,29 +149,54 @@ assert_case "omitted bypass_actors key is flagged (not a jq crash)" 1 \
 # incident this rule exists for. This is the control test the task asked
 # for: a known-non-zero case, not just a hand-built fixture the check was
 # fitted to.
+#
+# reporulez PR #69 panel, pass 2: this check's original message claimed an
+# admin-only bypass on a deletion rule "protects nobody who could otherwise
+# have deleted the branch." That claim is false -- deleting a branch
+# requires only write access, not admin, so an admin-only bypass still
+# restricts every Write-/Maintain-role holder who isn't also admin-level.
+# Since SPEC section 6.6 requires every ruleset to carry an admin bypass,
+# every SPEC-6.6-conformant ruleset with a deletion rule necessarily has
+# exactly the shape this check flags -- hard-failing on it blocked every
+# conformant ruleset it was pointed at. The check is now WARNING severity
+# (exit 0, printed, does not block apply), and its message no longer claims
+# the rule protects nobody.
 
-assert_case "bypass covering repo admin + OrganizationAdmin defeats deletion rule (real incident shape)" 1 \
-  "[bypass-defeats-deletion-restriction]" \
+assert_case "bypass covering repo admin + OrganizationAdmin on a deletion rule warns, does not block (real incident shape)" 0 \
+  "⚠ [bypass-defeats-deletion-restriction]" \
   "$VALIDATOR" "$FIXTURES/bypass-defeats-deletion.json"
+
+# The false "protects nobody" claim must not reappear. Separate from the
+# case above because assert_case only supports one positive substring per
+# call, and this is a negative assertion.
+BYPASS_WARN_OUTPUT="$("$VALIDATOR" "$FIXTURES/bypass-defeats-deletion.json" 2>&1)"
+if grep -qF "protects nobody" <<< "$BYPASS_WARN_OUTPUT"; then
+  echo "FAIL: bypass-defeats-deletion-restriction message still claims the rule \"protects nobody\" -- false: deleting a branch requires only write access, not admin"
+  FAIL=$((FAIL + 1))
+else
+  PASS=$((PASS + 1))
+fi
 
 assert_case "deletion rule with only admin bypass is not flagged" 0 \
   "is valid" \
   "$VALIDATOR" "$FIXTURES/valid-full.json"
 
-# reporulez PR #69 panel finding 3: the check used to require BOTH
+# reporulez PR #69 panel finding 3 (pass 1): the check used to require BOTH
 # RepositoryRole admin AND OrganizationAdmin before firing, which under-fired
 # -- an OrganizationAdmin-only always-bypass on a deletion rule passed clean,
 # and that was this repo's OWN shipped rulesets/org-baseline.json. GitHub
 # gives every org owner admin access to every repo in the org unconditionally
 # (cited in the script's header comment), so OrganizationAdmin alone is
-# already enough; RepositoryRole admin no longer needs to co-occur.
+# already enough to trigger the warning; RepositoryRole admin need not
+# co-occur.
 
-assert_case "OrganizationAdmin bypass ALONE (no RepositoryRole admin) defeats a deletion rule" 1 \
-  "[bypass-defeats-deletion-restriction]" \
+assert_case "OrganizationAdmin bypass ALONE (no RepositoryRole admin) on a deletion rule warns, does not block" 0 \
+  "⚠ [bypass-defeats-deletion-restriction]" \
   "$VALIDATOR" "$FIXTURES/orgadmin-only-defeats-deletion.json"
-# This is the exact shape rulesets/org-baseline.json shipped with before
-# this PR's fix (see the loop above, which now passes because org-baseline.json
-# was switched to a RepositoryRole admin bypass instead).
+# This is the exact shape rulesets/org-baseline.json ships with (see the
+# loop above, which passes because the warning doesn't block) -- it excuses
+# every org owner, a population GitHub documents as provably admin-level on
+# every repo in the org, unconditionally.
 
 assert_case "OrganizationAdmin bypass without a deletion rule at all is not flagged" 0 \
   "is valid" \
@@ -154,6 +205,20 @@ assert_case "OrganizationAdmin bypass without a deletion rule at all is not flag
 # without this case, a mutation that drops the deletion-rule check entirely
 # (firing on OrganizationAdmin alone regardless of rules) would go
 # undetected.
+
+# --- severity mixing: a WARNING must never block, and must never inflate
+# the ERROR count an exit-1 caller relies on -------------------------------
+
+assert_case "a real ERROR still blocks (exit 1) even when this WARNING also fires alongside it" 1 \
+  "1 violation(s) found" \
+  "$VALIDATOR" "$FIXTURES/error-with-deletion-warning.json"
+# error-with-deletion-warning.json carries both an unpinned clud-bug-review
+# context (integration-id-pin, ERROR) and an OrganizationAdmin bypass on a
+# deletion rule (bypass-defeats-deletion-restriction, WARNING). Pins that
+# the exit code and the summary count are driven by ERROR_COUNT, not the
+# total violation count (which would read "2 violation(s)") -- a WARNING
+# riding alongside a real ERROR must not be counted as blocking on its own,
+# and must not silently vanish from the count either.
 
 # --- multiple violations at once ----------------------------------------
 

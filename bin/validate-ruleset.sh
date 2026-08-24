@@ -26,11 +26,16 @@
 #   validate-ruleset.sh -             # read the ruleset JSON from stdin
 #   echo "$RULESET_JSON" | validate-ruleset.sh -
 #
-# Exit codes (mirrors bin/audit.sh's die()-uses-2 convention, so a caller
-# can tell "the ruleset is invalid" apart from "I couldn't even check it"):
-#   0   ruleset is valid — no violations found
-#   1   ruleset is invalid — one or more violations found (printed to
-#       stdout, one per line, prefixed "✗ [<check>] ")
+# Two severities, ERROR and WARNING — see "What it checks" below for which
+# check is which, and why. Exit codes (mirrors bin/audit.sh's
+# die()-uses-2 convention, so a caller can tell "the ruleset is invalid"
+# apart from "I couldn't even check it"):
+#   0   no ERROR-severity violation found. Any WARNING-severity violation
+#       still prints above the summary line, prefixed "⚠ [<check>] " — a
+#       warning is advisory and never blocks an apply.
+#   1   one or more ERROR-severity violations found (printed to stdout, one
+#       per line, prefixed "✗ [<check>] "). Warnings, if any, print too but
+#       are not what tripped this exit code.
 #   2   usage/input error — missing argument, file not found, unreadable
 #       stdin, or the input is not valid JSON. NEVER exits 0 on an input it
 #       could not read: a validator that cannot find its input errors, it
@@ -38,9 +43,18 @@
 #
 # What it checks, and why these two-plus-one and not more:
 #
-#   integration-id-pin (SPEC section 6.3.) A required check is a bare name;
-#     any identity that can post a check of that name satisfies it, and
-#     GitHub resolves a required check by the LATEST report for that
+#   Two severities. ERROR (prefixed "✗") makes the ruleset invalid — exit
+#   1, and apply.sh/apply-org.sh refuse to apply. WARNING (prefixed "⚠") is
+#   printed but never fails validation — exit 0, apply proceeds. A check is
+#   ERROR when what it flags is a genuine SPEC violation or a forgeable
+#   security gap. It is WARNING when what it flags is a design choice worth
+#   surfacing even though the ruleset already conforms to every SPEC
+#   requirement this script checks — see bypass-defeats-deletion-restriction
+#   below for why that is the one check at this level today.
+#
+#   integration-id-pin (SPEC section 6.3., ERROR) A required check is a bare
+#     name; any identity that can post a check of that name satisfies it,
+#     and GitHub resolves a required check by the LATEST report for that
 #     context — so an unpinned check is forgeable by a PAT, a workflow's
 #     default GITHUB_TOKEN, or another App. `integration_id` pins the check
 #     to the one identity allowed to post it. Today that applies to exactly
@@ -53,72 +67,99 @@
 #     deliberate call (same decision doc), not an oversight, so this script
 #     does not flag their absence of integration_id.
 #
-#   admin-bypass-required (SPEC section 6.6.) "The ruleset MUST carry a
-#     bypass held by repository administrators ... an incident fix cannot
+#   admin-bypass-required (SPEC section 6.6., ERROR) "The ruleset MUST carry
+#     a bypass held by repository administrators ... an incident fix cannot
 #     wait for one." A ruleset with an empty bypass_actors blocks its own
 #     repair. Checked unconditionally, for every ruleset this script is
 #     pointed at.
 #
-#   bypass-defeats-deletion-restriction (not a SPEC-2 citation — this
-#     repo's own rule, written after a live incident on 2026-08-14: an org
-#     ruleset on thrillmade/agent-skills was Active, targeted `dev`, and
-#     had "Restrict deletions" checked — and `dev` was deleted anyway,
-#     because bypass_actors' "Always allow" list already covered every
-#     role able to delete it. A rule whose bypass list covers every role
-#     able to perform the action it restricts protects nobody who could
-#     have performed that action in the first place — its stated intent
-#     and its actual effect diverge.
+#   bypass-defeats-deletion-restriction (WARNING; not a SPEC-2 citation —
+#     this repo's own rule) written after a live incident on 2026-08-14: an
+#     org ruleset on thrillmade/agent-skills was Active, targeted `dev`, and
+#     had "Restrict deletions" checked — and `dev` was deleted anyway. The
+#     live ruleset (read via `gh api repos/thrillmade/agent-skills
+#     /rulesets/<id>`, read-only) carried `OrganizationAdmin`,
+#     `RepositoryRole` actor_id=2, `RepositoryRole` actor_id=5, and one
+#     `Integration`, all `bypass_mode: always`.
 #
-#     What this checks for is deliberately narrower than the incident's
-#     full bypass list, and only names IDs that are actually verifiable.
-#     GitHub does not publish a stable, complete mapping of role name to
-#     numeric `actor_id` for ruleset bypass actors — only `RepositoryRole`
-#     `admin = 5` is corroborated (this repo's own README; GitHub CLI
-#     issue cli/cli#13388; the third-party `nskit` Python client's
-#     `RepositoryRole` enum, which encodes only `admin = 5` for exactly
-#     this reason and calls guessing the rest "inventing an integration
-#     contract"). The live ruleset from the incident (read confirmed via
-#     `gh api repos/thrillmade/agent-skills/rulesets/<id>`, read-only)
-#     carries `OrganizationAdmin`, `RepositoryRole actor_id=2`,
-#     `RepositoryRole actor_id=5`, and one `Integration`, all `always` —
-#     `actor_id=2` is NOT reliably "Maintain," so this check does not
-#     depend on it. It checks the two IDs that are verifiable:
-#     `RepositoryRole` `admin` (id=5) — the repo's own top role — and
-#     `OrganizationAdmin`.
+#     THIS CHECK'S ORIGINAL CLAIM WAS FALSE (reporulez PR #69 panel, pass
+#     2, after the ERROR-severity version had already shipped): it fired
+#     whenever a `deletion` rule's bypass_actors granted an always-bypass to
+#     `OrganizationAdmin`, on the claim that doing so "protects nobody who
+#     could otherwise have deleted the branch." Deleting a branch requires
+#     WRITE access, not admin — "If you have write access in a repository,
+#     you can delete branches that are associated with closed or merged
+#     pull requests"
+#     (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-branches-in-your-repository/deleting-and-restoring-branches-in-a-pull-request),
+#     and the REST API's `DELETE /repos/{owner}/{repo}/git/refs/{ref}`
+#     requires only `Contents` repository permission `write`, not admin
+#     (https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28#delete-a-reference).
+#     A ruleset's own `allow_deletions` field is documented the same way:
+#     "Allows deletion of the protected branch by anyone with write access
+#     to the repository." So an admin-only bypass (`RepositoryRole` `admin`
+#     id=5, and/or `OrganizationAdmin`) still restricts every real Write-
+#     or Maintain-role holder who is not ALSO admin-level — it protects
+#     someone, and "protects nobody" was wrong. Independently confirmed on
+#     `thrillmade/protocol`: a live collaborator with `role_name=write`,
+#     `admin=false`, org membership `role=member` (not owner) is restricted
+#     by a `deletion` rule whose bypass is admin-only, matched by none of
+#     that repo's bypass entries.
 #
-#     FIRES ON `OrganizationAdmin` ALONE, `RepositoryRole` `admin` need not
-#     also be present. An earlier version of this check required BOTH
-#     before firing, on the reasoning "between those two, every person with
-#     admin-level access to the repository is covered" — that sentence
-#     shipped with no citation (reporulez PR #69 panel finding), and it
-#     also under-fired: it missed this repo's own rulesets/org-baseline.json,
-#     which ships `OrganizationAdmin` alone on a `deletion` rule — the
-#     incident's exact shape, reduced to the one bypass type. GitHub's own
-#     docs settle the `OrganizationAdmin` half on their own, unconditionally:
-#     "organization owners have admin access to every repository owned by
-#     the organization"
-#     (https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization).
-#     That is not contingent on any `RepositoryRole` assignment, so an
-#     `OrganizationAdmin` always-bypass on a `deletion` rule already covers
-#     every org owner's real, admin-level access to the repo, whether or
-#     not a `RepositoryRole` `admin` bypass is ALSO present. This script
-#     now flags that on its own.
+#     WHY THIS IS STILL WORTH FLAGGING, JUST NOT AS AN ERROR: protocol SPEC
+#     section 6.6 requires "The ruleset MUST carry a bypass held by
+#     repository administrators," unconditionally — so every SPEC-6.6-
+#     conformant ruleset that also restricts deletion necessarily carries an
+#     admin-level entry on its bypass list. Flagging that shape as ERROR
+#     made this a hard pre-apply gate that fired on every conformant
+#     ruleset it was pointed at — a gate that fires on every valid input is
+#     not a gate. What IS genuinely worth surfacing, at WARNING: an
+#     `OrganizationAdmin` always-bypass excuses every organization owner —
+#     GitHub gives every org owner admin access to every repository the org
+#     owns, unconditionally
+#     (https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization)
+#     — a population nobody administers per-repository, unlike
+#     `RepositoryRole` `admin` (id=5), which is scoped to whoever holds
+#     THIS repo's own Admin role. SPEC 6.6's own rationale for requiring the
+#     bypass — "a change to a gate's own workflow cannot pass the gate it
+#     changes, and an incident fix cannot wait for one" — is about a gate
+#     blocking the fix to itself. Restoring an accidentally deleted branch
+#     is not editing a gate's workflow, so that rationale does not obviously
+#     require extending the bypass's reach to every org owner specifically
+#     for a `deletion` rule. This script says so and leaves the choice to
+#     the ruleset author; it does not refuse the apply over it.
 #
-#     `RepositoryRole` `admin` alone (no `OrganizationAdmin`) is still NOT
-#     flagged, and that is an ASSUMPTION, not a citation, stated plainly so
-#     it can be checked: it assumes ruleset bypass matching for
-#     `RepositoryRole` uses a user's ASSIGNED repo role, not their
-#     EFFECTIVE permission (which for an org owner is always "admin" on
-#     every repo, per the citation above, regardless of any assignment).
-#     GitHub does not document which of the two it uses. If it turns out to
-#     be effective permission — via GitHub documenting it, or a second
-#     incident — this assumption is wrong and `RepositoryRole` `admin`
-#     alone should fire too; revisit then, not preemptively, matching the
-#     "ground extensions in an incident" discipline this check was written
-#     under. Every repo-level ruleset this repo ships
-#     (baseline/clud-bug/public-guard/skdd) relies on exactly this
-#     assumption holding — they use `RepositoryRole` `admin` alone as their
-#     SPEC-6.6 bypass and are not flagged.
+#     STILL NARROWER THAN THE INCIDENT'S FULL BYPASS LIST, same as before
+#     the severity change: GitHub does not publish a stable, complete
+#     mapping of role name to numeric `actor_id` for ruleset bypass actors —
+#     only `RepositoryRole` `admin = 5` is corroborated (this repo's own
+#     README; GitHub CLI issue cli/cli#13388; the third-party `nskit`
+#     Python client's `RepositoryRole` enum, which encodes only `admin = 5`
+#     for exactly this reason and calls guessing the rest "inventing an
+#     integration contract"). The incident ruleset's `RepositoryRole`
+#     actor_id=2 and its `Integration` entry are neither `RepositoryRole`
+#     `admin` (id=5) nor `OrganizationAdmin` — the only two actor shapes
+#     this script can prove are admin-level — and this check does NOT flag
+#     them at any severity: it only looks at whether `OrganizationAdmin` is
+#     present. A `RepositoryRole` id that isn't 5, a `Team`, or an
+#     `Integration` could each resolve to someone with only write- or
+#     maintain-level access — the population a `deletion` rule exists to
+#     restrict — and none of that is checked here. That is a real, open
+#     gap, not a silent limitation: flagging it is deliberate; closing it
+#     needs GitHub to document those actor shapes' effective permission, or
+#     a second incident to ground a narrower rule, matching the "ground
+#     extensions in an incident" discipline this check was written under.
+#
+#     `RepositoryRole` `admin` (id=5) alone (no `OrganizationAdmin`) is not
+#     flagged at all, not even as a warning — that is an ASSUMPTION, not a
+#     citation, stated plainly so it can be checked: it assumes ruleset
+#     bypass matching for `RepositoryRole` uses a user's ASSIGNED repo
+#     role, not their EFFECTIVE permission (which for an org owner is
+#     always "admin" on every repo, per the citation above, regardless of
+#     any assignment). GitHub does not document which of the two it uses.
+#     If it turns out to be effective permission — via GitHub documenting
+#     it, or a second incident — this assumption is wrong and
+#     `RepositoryRole` `admin` alone should warn too; revisit then, not
+#     preemptively.
 #
 #     This script flags the divergence for a `deletion` rule specifically,
 #     matching the incident; it does not generalize to `non_fast_forward`
@@ -144,7 +185,7 @@ set -euo pipefail
 die() { echo "error: $*" >&2; exit 2; }
 
 usage() {
-  sed -n '2,37p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 2; }
@@ -193,40 +234,43 @@ def role_bypass_present(want_type; want_id):
         (want_id == null or .actor_id == want_id));
 
 [
-  # integration-id-pin (SPEC section 6.3): every clud-bug-review entry in
-  # every required_status_checks rule must pin the clud-bug[bot] App id.
+  # integration-id-pin (SPEC section 6.3, ERROR): every clud-bug-review entry
+  # in every required_status_checks rule must pin the clud-bug[bot] App id.
   ( (.rules // [])[]
     | select(.type == "required_status_checks")
     | (.parameters.required_status_checks // [])[]
     | select(.context == "clud-bug-review")
     | if (.integration_id // null) == null then
-        { rule: "integration-id-pin",
+        { rule: "integration-id-pin", severity: "error",
           message: "required_status_checks entry \"clud-bug-review\" has no integration_id -- SPEC section 6.3 requires pinning a required check to its producer identity (the clud-bug[bot] App id, \($clud_bug_id)); an unpinned context can be satisfied by any token with statuses:write." }
       elif .integration_id != $clud_bug_id then
-        { rule: "integration-id-pin",
+        { rule: "integration-id-pin", severity: "error",
           message: "required_status_checks entry \"clud-bug-review\" pins integration_id=\(.integration_id), expected \($clud_bug_id) (the clud-bug[bot] App id) -- SPEC section 6.3." }
       else empty
       end
   ),
 
-  # admin-bypass-required (SPEC section 6.6): the ruleset must carry a
+  # admin-bypass-required (SPEC section 6.6, ERROR): the ruleset must carry a
   # bypass a repository administrator can actually use.
   ( if admin_bypass_present then empty
     else
-      { rule: "admin-bypass-required",
+      { rule: "admin-bypass-required", severity: "error",
         message: "bypass_actors carries no repository-administrator bypass (RepositoryRole actor_id=5 \"admin\", or OrganizationAdmin, bypass_mode=\"always\") -- SPEC section 6.6: the ruleset MUST carry a bypass held by repository administrators, because the first thing a broken gate blocks is the change that would fix it." }
     end
   ),
 
-  # bypass-defeats-deletion-restriction (this repo's own rule -- see the
-  # header comment for the incident that grounds it, the citation for why
-  # OrganizationAdmin alone is enough to fire, and the stated assumption
-  # -- not a citation -- for why RepositoryRole admin (id=5) alone is not).
+  # bypass-defeats-deletion-restriction (WARNING; this repo's own rule --
+  # see the header comment for the incident that grounds it, the citations
+  # for why the check's original "protects nobody" claim was false, and the
+  # stated assumption -- not a citation -- for why RepositoryRole admin
+  # (id=5) alone is not flagged even as a warning). Advisory, not an error:
+  # SPEC section 6.6 requires every ruleset to carry an admin bypass, so
+  # every conformant ruleset with a deletion rule has exactly this shape.
   ( if ((.rules // []) | any(.type == "deletion"))
        and role_bypass_present("OrganizationAdmin"; null)
     then
-      { rule: "bypass-defeats-deletion-restriction",
-        message: "a \"deletion\" rule is present but bypass_actors grants an always-bypass to OrganizationAdmin -- GitHub gives every organization owner admin access to every repository the org owns (https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization), so this bypass alone already covers every org owner's admin-level access to this repository, whether or not a RepositoryRole \"admin\" (id=5) bypass is also present. The rule's stated intent (\"restrict deletions\") and its actual effect (no org owner is restricted) diverge. Narrow bypass_actors or drop the deletion rule; do not ship both." }
+      { rule: "bypass-defeats-deletion-restriction", severity: "warning",
+        message: "a \"deletion\" rule is present and bypass_actors grants an always-bypass to OrganizationAdmin -- this is advisory, not a defect. Deleting a branch requires only write access, not admin (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-branches-in-your-repository/deleting-and-restoring-branches-in-a-pull-request), so this bypass does not, on its own, let every non-admin contributor with write or maintain access delete the branch this rule restricts -- they remain restricted, whether or not OrganizationAdmin is also on the list. What IS worth reconsidering: OrganizationAdmin grants every organization owner an unconditional bypass, a population nobody administers per-repository, unlike RepositoryRole \"admin\" (id=5), which is scoped to whoever holds this specific repo's own Admin role. Protocol SPEC section 6.6 requires every ruleset carry an admin bypass so a gate cannot block the fix to its own workflow -- but restoring an accidentally deleted branch is not editing a gate's workflow, so that rationale does not obviously require extending the bypass's reach to every org owner specifically for a deletion rule. Consider RepositoryRole \"admin\" (id=5) alone if repo-scoped is what you want; this check does not require the change." }
     else empty
     end
   )
@@ -237,13 +281,22 @@ VIOLATIONS_JSON="$(echo "$RULESET_JSON" \
   | jq -c --argjson clud_bug_id "$CLUD_BUG_INTEGRATION_ID" -f "$JQ_PROGRAM")" \
   || die "$SOURCE_LABEL: validation logic failed (this is a bug in validate-ruleset.sh, not in the ruleset -- please report it)"
 
-COUNT="$(echo "$VIOLATIONS_JSON" | jq 'length')"
+ERROR_COUNT="$(echo "$VIOLATIONS_JSON" | jq '[.[] | select(.severity == "error")] | length')"
+WARNING_COUNT="$(echo "$VIOLATIONS_JSON" | jq '[.[] | select(.severity == "warning")] | length')"
 
-if [[ "$COUNT" -eq 0 ]]; then
-  echo "✓ $SOURCE_LABEL is valid — no violations found."
-  exit 0
+# Print every violation regardless of severity or exit code -- a warning is
+# not a reason to hide it, only a reason not to block on it.
+echo "$VIOLATIONS_JSON" \
+  | jq -r '.[] | (if .severity == "warning" then "⚠" else "✗" end) + " [\(.rule)] \(.message)"'
+
+if [[ "$ERROR_COUNT" -gt 0 ]]; then
+  echo "$ERROR_COUNT violation(s) found in $SOURCE_LABEL."
+  exit 1
 fi
 
-echo "$VIOLATIONS_JSON" | jq -r '.[] | "✗ [\(.rule)] \(.message)"'
-echo "$COUNT violation(s) found in $SOURCE_LABEL."
-exit 1
+if [[ "$WARNING_COUNT" -gt 0 ]]; then
+  echo "✓ $SOURCE_LABEL is valid — no blocking violations found ($WARNING_COUNT warning(s) above)."
+else
+  echo "✓ $SOURCE_LABEL is valid — no violations found."
+fi
+exit 0

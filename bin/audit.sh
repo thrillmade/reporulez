@@ -76,8 +76,8 @@ INCLUDE_RULESET="false"
 # required_status_checks or bypass_actors CONTENT matches a particular
 # variant's expected value is intentionally NOT checked here: too variant-
 # specific to flag generically. Field-level validity that holds regardless
-# of variant -- an admin bypass exists at all, a deletion rule's bypass
-# doesn't defeat it -- IS checked, via bin/validate-ruleset.sh below.)
+# of variant -- an admin bypass exists at all -- IS checked, via
+# bin/validate-ruleset.sh below.)
 REQUIRED_RULESET_RULE_TYPES=(
   deletion
   non_fast_forward
@@ -207,12 +207,17 @@ audit_ruleset() {
   done
 
   # Field-validation results collected above. Unlike REQUIRED_RULESET_RULE_TYPES
-  # (fixed rule-type presence, true for every variant), these ARE variant-
-  # specific in general -- but bypass-defeats-deletion-restriction and
-  # admin-bypass-required are not "does bypass_actors match variant X",
-  # they are "is bypass_actors internally self-defeating", which holds
-  # regardless of variant. That is why they belong here despite the
-  # existing note above about not checking bypass_actors content generically.
+  # (fixed rule-type presence, true for every variant), bypass_actors CONTENT
+  # is generally variant-specific -- but admin-bypass-required is not "does
+  # bypass_actors match variant X", it's "does SOME admin-level bypass
+  # exist at all", which holds regardless of variant. That is why it
+  # belongs here despite the existing note above about not checking
+  # bypass_actors content generically. Only ERROR-severity lines ("✗"-
+  # prefixed) from validate-ruleset.sh are captured into field_violations
+  # above (val_exit -eq 1 branch) -- a WARNING (currently only
+  # bypass-defeats-deletion-restriction) prints from the validator but is
+  # never counted as drift here, on purpose: it flags a design choice on an
+  # otherwise-conformant ruleset, not a defect this audit should fail on.
   if [[ ${#field_violations[@]} -eq 0 ]]; then
     lines+=("$(printf '  ✓ %-32s = no violations' "ruleset.field_validation")")
   else
