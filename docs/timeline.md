@@ -13,10 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-08 (4 decisions)
+## 2026-08 (5 decisions)
 
-- **2026-08-24** — reporulez PR #69 pass 2: bypass-defeats-deletion-restriction was refuting a false claim as a hard gate; downgrade to WARNING, fix the message, and revert org-baseline.json's admin-bypass swap *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
-- *... 2 more decisions ...*
+- **2026-08-24** — Correct two claims in this branch's own record: a misattributed citation and an undercounted mutation *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
+- *... 3 more decisions ...*
 - **2026-08-24** — reporulez#68: bin/validate-ruleset.sh -- validate a ruleset's required fields before it is ever applied *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
 
 ## 2026-07 (3 decisions)
