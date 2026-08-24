@@ -7,7 +7,15 @@
 # created in the future — with one ruleset, instead of running bin/apply.sh
 # once per repo. The only variant today is `org-baseline` (the default): a
 # minimal structural floor (PR required, no force-push, no default-branch
-# deletion) that applies org-wide with an OrganizationAdmin bypass baked in.
+# deletion) that applies org-wide with an OrganizationAdmin bypass baked in
+# -- not RepositoryRole "admin" (id=5): a repo created by this floor's own
+# "including future repos" promise has no per-repo Admin grant to match
+# against yet, and GitHub documents OrganizationAdmin as provably covering
+# every org owner on every repo, present and future, unconditionally. See
+# rulesets/org-baseline.json's own bypass_actors and README's "Org-level
+# baseline" section for the full reasoning, including why
+# bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check warns
+# (not blocks) on this shape.
 #
 # Org-level and repo-level rulesets LAYER — GitHub evaluates every ruleset
 # that targets a branch and a write must satisfy all of them. This script
@@ -95,10 +103,27 @@ EXISTING_ID="$(echo "$RULESETS_JSON" \
   | jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' \
   | head -n1)"
 
-cleanup() { [[ -n "${TMP_JSON:-}" ]] && rm -f "$TMP_JSON" || true; }
+cleanup() {
+  [[ -n "${TMP_JSON:-}" ]] && rm -f "$TMP_JSON" || true
+  [[ -n "${VALIDATOR_TMP:-}" ]] && rm -f "$VALIDATOR_TMP" || true
+}
 trap cleanup EXIT
 TMP_JSON="$(mktemp)"
 echo "$RULESET_JSON" > "$TMP_JSON"
+
+# Validate before this ruleset changes branch protection on EVERY
+# repository in the org at once -- reporulez#68's entire point. Same
+# local-checkout-or-fetch fallback as the ruleset JSON itself.
+VALIDATOR="$SCRIPT_DIR/validate-ruleset.sh"
+if [[ ! -f "$VALIDATOR" ]]; then
+  VALIDATOR_TMP="$(mktemp)"
+  VALIDATOR="$VALIDATOR_TMP"
+  curl -fsSL "$RAW_BASE/bin/validate-ruleset.sh" -o "$VALIDATOR" \
+    || die "failed to fetch validator: $RAW_BASE/bin/validate-ruleset.sh"
+fi
+info "Validating org ruleset against required fields before applying to '$ORG'"
+echo "$RULESET_JSON" | bash "$VALIDATOR" - \
+  || die "ruleset failed pre-apply validation (see above) — refusing to apply an invalid ruleset org-wide to '$ORG'"
 
 if [[ -n "$EXISTING_ID" ]]; then
   info "Updating existing org ruleset '$RULESET_NAME' (id=$EXISTING_ID) on $ORG"
@@ -118,8 +143,13 @@ What this does:
   - Protects the default branch of EVERY repo in '$ORG', including future repos.
   - PRs required (no direct default-branch pushes), force pushes blocked,
     default-branch deletion blocked.
-  - OrganizationAdmin can bypass (bypass_mode=always) to unstick edge cases
-    without disabling the ruleset.
+  - Any organization owner (OrganizationAdmin, bypass_mode=always) can
+    bypass on any repo the floor covers, including one created after this
+    ran, to unstick an edge case there without disabling the ruleset.
+    bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check
+    notes this as a WARNING, not a block -- see README's "Org-level
+    baseline" section for why that bypass, not a per-repo one, is the
+    right default here.
 
 Notes:
   - This LAYERS with any per-repo rulesets from bin/apply.sh — it never

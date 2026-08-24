@@ -1,12 +1,9 @@
 {
-  "name": "reporulez-default",
+  "name": "fixture-valid-full",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
-    "ref_name": {
-      "include": ["~DEFAULT_BRANCH"],
-      "exclude": []
-    }
+    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
   },
   "bypass_actors": [
     { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }
@@ -14,18 +11,6 @@
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
-    { "type": "required_linear_history" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": true,
-        "dismiss_stale_reviews_on_push": true,
-        "allowed_merge_methods": ["squash"]
-      }
-    },
     {
       "type": "required_status_checks",
       "parameters": {
@@ -33,8 +18,6 @@
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           { "context": "clud-bug-review", "integration_id": 3944857 },
-          { "context": "check-derived-docs" },
-          { "context": "check-decisions" },
           { "context": "check-links" }
         ]
       }

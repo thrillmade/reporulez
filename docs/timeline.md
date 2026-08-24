@@ -13,6 +13,12 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
+## 2026-08 (5 decisions)
+
+- **2026-08-24** — Correct two claims in this branch's own record: a misattributed citation and an undercounted mutation *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
+- *... 3 more decisions ...*
+- **2026-08-24** — reporulez#68: bin/validate-ruleset.sh -- validate a ruleset's required fields before it is ever applied *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
+
 ## 2026-07 (3 decisions)
 
 - **2026-07-25** — Z6: pin clud-bug-review required_status_checks to integration_id 3944857 (config only, not applied) *(feat-z6-integration-id-pin)* — [decisions-branches/feat-z6-integration-id-pin.md](decisions-branches/feat-z6-integration-id-pin.md)

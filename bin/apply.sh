@@ -7,11 +7,16 @@
 #                              [--extra-check 'CONTEXT NAME']... \
 #                              [--with-dependabot=<ecosystem>]
 #
-# Defaults: baseline variant, no human review required (AI auto-mode). Bypass
-# actors default OFF for baseline/clud-bug/public-guard and ON for skdd (its
-# self-mod use case practically always needs the Repository admin bypass —
-# see --bypass-admin docs below). Override per-variant default with
-# --bypass-admin (force on) or --no-bypass-admin (force off).
+# Defaults: baseline variant, no human review required (AI auto-mode). Every
+# repo-level variant (baseline/clud-bug/public-guard/skdd) now SHIPS the
+# Repository admin bypass in its rulesets/*.json — protocol SPEC section 6.6
+# makes that bypass unconditional ("a change to a gate's own workflow cannot
+# pass the gate it changes, and an incident fix cannot wait for one"), and
+# bin/validate-ruleset.sh enforces it on every apply regardless of variant.
+# --bypass-admin is therefore an idempotent no-op against the shipped
+# default (kept for forked/hand-edited rulesets that don't carry it yet);
+# --no-bypass-admin actively strips it — see the flag's own comment below
+# for what that does to the pre-apply validation.
 #
 # The skdd variant extends baseline with a required_status_checks
 # rule for the canonical contexts shipped by both tools (clud-bug-review,
@@ -20,13 +25,18 @@
 # derived-file conflict-free property.
 #
 # --bypass-admin pre-populates bypass_actors with "Repository admin" (RepositoryRole
-# id=5, bypass_mode=always). On skdd this is the DEFAULT (use
-# --no-bypass-admin to opt out) because clud-bug's review action 401s on
-# PRs that edit its own workflow files (self-mod guard), so the required
-# clud-bug-review check fails and merge deadlocks. The bypass lets an admin
-# merge those self-mod PRs without disabling the whole ruleset. On the other
-# variants the default is OFF — opt in with --bypass-admin
-# only if you also have a self-mod ceremony to support.
+# id=5, bypass_mode=always) — idempotent, since every shipped variant's JSON
+# already carries this entry (SPEC section 6.6 makes it unconditional, not
+# just an skdd self-mod convenience: a gate that blocks its own repair is
+# the exact failure the bypass exists to prevent, on every variant, not only
+# the one with a self-mod ceremony). --no-bypass-admin strips it explicitly.
+# Doing so on any of these variants leaves bypass_actors with no qualifying
+# admin bypass at all, so the pre-apply validate-ruleset.sh call below will
+# refuse the apply outright (admin-bypass-required, unconditionally) — that
+# is SPEC section 6.6 doing its job, not a bug here. Pass --no-bypass-admin
+# only if you intend to add a different qualifying bypass yourself before
+# applying (e.g. hand-editing the ruleset afterward is not this script's
+# job).
 #
 # --extra-check 'CONTEXT NAME' is repeatable and adds project-specific status
 # check contexts (e.g. pytest matrix slots) to the ruleset's required_status_checks
@@ -55,7 +65,7 @@ info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
 usage() {
-  sed -n '2,44p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,56p' "$0" | sed 's/^# //; s/^#//'
 }
 
 # Whitelist for --with-dependabot. Used both for input validation and to
@@ -75,7 +85,7 @@ case "$1" in -h|--help) usage; exit 0 ;; esac
 REPO="$1"; shift
 VARIANT="baseline"
 HUMAN_REVIEW="false"
-BYPASS_ADMIN=""  # sentinel: empty = use per-variant default; "true"/"false" = explicit
+BYPASS_ADMIN=""  # sentinel: empty = leave bypass_actors exactly as the variant JSON ships it (present, on every repo-level variant); "true" = ensure present (idempotent); "false" = strip explicitly
 EXTRA_CHECKS=()  # parallel array of context names; preserves order
 WITH_DEPENDABOT=""  # empty = skip the dependabot.yml step (default); otherwise the ecosystem slug
 
@@ -110,19 +120,11 @@ if [[ -n "$WITH_DEPENDABOT" ]]; then
     || die "--with-dependabot value '$WITH_DEPENDABOT' is not a known ecosystem. Valid values: ${VALID_DEPENDABOT_ECOSYSTEMS[*]}"
 fi
 
-# Per-variant default for BYPASS_ADMIN when caller didn't pass the flag.
-# skdd defaults ON because the variant's self-mod use case
-# (clud-bug's claude-code-action 401s on PRs editing its own workflow
-# files) practically always needs the Repository admin bypass — without
-# it, every self-mod PR deadlocks. other variants default OFF because
-# they don't have a self-mod ceremony built in. Explicit --bypass-admin
-# or --no-bypass-admin always wins over the default.
-if [[ -z "$BYPASS_ADMIN" ]]; then
-  case "$VARIANT" in
-    skdd) BYPASS_ADMIN="true" ;;
-    *)                BYPASS_ADMIN="false" ;;
-  esac
-fi
+# No per-variant default switch anymore: every repo-level variant's JSON
+# already ships the Repository admin bypass (SPEC section 6.6 makes it
+# unconditional, not skdd-specific). BYPASS_ADMIN empty means "leave
+# bypass_actors exactly as the variant shipped it" — neither flag block
+# below runs, and the shipped default (present) stands.
 
 [[ "$REPO" == */* ]] || die "repo must be in owner/repo form, got: $REPO"
 command -v gh >/dev/null || die "gh CLI not found (https://cli.github.com)"
@@ -174,6 +176,20 @@ if [[ "$BYPASS_ADMIN" == "true" ]]; then
   ')"
 fi
 
+# Patch bypass_actors if --no-bypass-admin: strip the Repository admin role
+# (id=5) entry explicitly, if present. Every repo-level variant ships this
+# entry by default now, so this flag has real effect where it previously
+# did not (baseline/clud-bug/public-guard used to ship bypass_actors:[]
+# already, so "don't add it" and "remove it" were indistinguishable). The
+# validate-ruleset.sh call below will refuse to apply the result unless a
+# different qualifying bypass survives (see the flag's usage-comment above).
+if [[ "$BYPASS_ADMIN" == "false" ]]; then
+  info "Patching bypass_actors: removing Repository admin (RepositoryRole id=5, bypass_mode=always) if present"
+  RULESET_JSON="$(echo "$RULESET_JSON" | jq '
+    .bypass_actors |= [ .[] | select(.actor_type != "RepositoryRole" or .actor_id != 5) ]
+  ')"
+fi
+
 # Patch required_status_checks with each --extra-check value. Lets a single
 # apply.sh call add project-specific contexts (e.g. pytest matrix slots) without
 # forking the variant JSON. The variant must already ship a required_status_checks
@@ -199,6 +215,23 @@ fi
 CLEANUP_FILES=()
 cleanup() { [[ ${#CLEANUP_FILES[@]} -gt 0 ]] && rm -f "${CLEANUP_FILES[@]}" || true; }
 trap cleanup EXIT
+
+# Validate the FINAL ruleset JSON — after every --human-review /
+# --bypass-admin / --extra-check patch above — before anything below makes
+# a single mutating call. reporulez#68: nothing checked a ruleset's
+# contents before it changed branch protection on a real repo; this runs
+# first and refuses outright rather than applying something invalid. Same
+# local-checkout-or-fetch fallback as the ruleset JSON itself.
+VALIDATOR="$SCRIPT_DIR/validate-ruleset.sh"
+if [[ ! -f "$VALIDATOR" ]]; then
+  VALIDATOR="$(mktemp)"
+  CLEANUP_FILES+=("$VALIDATOR")
+  curl -fsSL "$RAW_BASE/bin/validate-ruleset.sh" -o "$VALIDATOR" \
+    || die "failed to fetch validator: $RAW_BASE/bin/validate-ruleset.sh"
+fi
+info "Validating ruleset against required fields before applying anything to $REPO"
+echo "$RULESET_JSON" | bash "$VALIDATOR" - \
+  || die "ruleset failed pre-apply validation (see above) — refusing to apply an invalid ruleset to $REPO"
 
 # 1. Tune repo-level settings that rulesets cannot control. Step 1 is
 #    safe at any point — it doesn't write to the default branch.
@@ -309,7 +342,7 @@ fi
 # 4. Follow-up checklist (cannot be done safely or automatically).
 cat >&2 <<EOF
 
-OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW, bypass admin: $BYPASS_ADMIN, dependabot: ${WITH_DEPENDABOT:-none}).
+OK. Ruleset '$RULESET_NAME' applied to $REPO (variant: $VARIANT, human review: $HUMAN_REVIEW, bypass admin: ${BYPASS_ADMIN:-as shipped (present)}, dependabot: ${WITH_DEPENDABOT:-none}).
 
 Next steps you should do manually:
 EOF
@@ -317,7 +350,15 @@ EOF
 case "$VARIANT" in
 skdd)
   # skdd ships required_status_checks with the four canonical contexts, so the
-  # manual "add a status-checks rule" step is skipped. The key caveat is below.
+  # manual "add a status-checks rule" step is skipped.
+  #
+  # No --no-bypass-admin caveat here: if this run reached step 4 at all, the
+  # applied ruleset passed validate-ruleset.sh's admin-bypass-required check
+  # (SPEC section 6.6, unconditional), so it carries a qualifying admin
+  # bypass. A --no-bypass-admin run that stripped the only qualifying entry
+  # would have been refused before step 1 ever ran (see --no-bypass-admin's
+  # own usage comment above) — there is no reachable state here where the
+  # bypass is absent.
   cat >&2 <<EOF
   1. (Optional) Drop in templates/CODEOWNERS and templates/pull_request_template.md.
   2. Confirm BOTH clud-bug AND logmind are installed on this repo. The ruleset's
@@ -329,18 +370,6 @@ skdd)
        npx clud-bug init
        logmind init --all-agents --install-hook
 EOF
-  if [[ "$BYPASS_ADMIN" != "true" ]]; then
-    cat >&2 <<EOF
-  3. You opted OUT of admin bypass via --no-bypass-admin. Heads up: clud-bug's
-     review action refuses (401) to review PRs that edit its own workflow files,
-     so the required clud-bug-review check fails and merge deadlocks on self-mod
-     PRs (e.g. version bumps of clud-bug itself). Without the bypass you'll need
-     to either disable the ruleset for those merges or hand-PATCH bypass_actors.
-     If you change your mind, re-run with --bypass-admin (now the default for
-     this variant):
-       ./bin/apply.sh $REPO skdd --bypass-admin
-EOF
-  fi
   ;;
 clud-bug)
   # clud-bug ships required_status_checks with just the clud-bug-review context.
