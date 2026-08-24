@@ -83,14 +83,46 @@
 #     `RepositoryRole actor_id=5`, and one `Integration`, all `always` —
 #     `actor_id=2` is NOT reliably "Maintain," so this check does not
 #     depend on it. It checks the two IDs that are verifiable:
-#     `RepositoryRole` `admin` (id=5) — the repo's own top role — together
-#     with `OrganizationAdmin`. Between those two, every person with
-#     admin-level access to the repository is covered, however it was
-#     granted, and that is already enough to make a `deletion` rule
-#     protect nobody. This script flags that divergence for a `deletion`
-#     rule specifically, matching the incident; it does not generalize to
-#     `non_fast_forward` or `update` without a second incident to ground
-#     that extension.
+#     `RepositoryRole` `admin` (id=5) — the repo's own top role — and
+#     `OrganizationAdmin`.
+#
+#     FIRES ON `OrganizationAdmin` ALONE, `RepositoryRole` `admin` need not
+#     also be present. An earlier version of this check required BOTH
+#     before firing, on the reasoning "between those two, every person with
+#     admin-level access to the repository is covered" — that sentence
+#     shipped with no citation (reporulez PR #69 panel finding), and it
+#     also under-fired: it missed this repo's own rulesets/org-baseline.json,
+#     which ships `OrganizationAdmin` alone on a `deletion` rule — the
+#     incident's exact shape, reduced to the one bypass type. GitHub's own
+#     docs settle the `OrganizationAdmin` half on their own, unconditionally:
+#     "organization owners have admin access to every repository owned by
+#     the organization"
+#     (https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization).
+#     That is not contingent on any `RepositoryRole` assignment, so an
+#     `OrganizationAdmin` always-bypass on a `deletion` rule already covers
+#     every org owner's real, admin-level access to the repo, whether or
+#     not a `RepositoryRole` `admin` bypass is ALSO present. This script
+#     now flags that on its own.
+#
+#     `RepositoryRole` `admin` alone (no `OrganizationAdmin`) is still NOT
+#     flagged, and that is an ASSUMPTION, not a citation, stated plainly so
+#     it can be checked: it assumes ruleset bypass matching for
+#     `RepositoryRole` uses a user's ASSIGNED repo role, not their
+#     EFFECTIVE permission (which for an org owner is always "admin" on
+#     every repo, per the citation above, regardless of any assignment).
+#     GitHub does not document which of the two it uses. If it turns out to
+#     be effective permission — via GitHub documenting it, or a second
+#     incident — this assumption is wrong and `RepositoryRole` `admin`
+#     alone should fire too; revisit then, not preemptively, matching the
+#     "ground extensions in an incident" discipline this check was written
+#     under. Every repo-level ruleset this repo ships
+#     (baseline/clud-bug/public-guard/skdd) relies on exactly this
+#     assumption holding — they use `RepositoryRole` `admin` alone as their
+#     SPEC-6.6 bypass and are not flagged.
+#
+#     This script flags the divergence for a `deletion` rule specifically,
+#     matching the incident; it does not generalize to `non_fast_forward`
+#     or `update` without a second incident to ground that extension.
 #
 #   SPEC section 6.6's second clause — "the regenerating identity MUST
 #     have one of its own [a bypass], distinct from every person's and
@@ -112,7 +144,7 @@ set -euo pipefail
 die() { echo "error: $*" >&2; exit 2; }
 
 usage() {
-  sed -n '2,44p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,37p' "$0" | sed 's/^# //; s/^#//'
 }
 
 [[ $# -ge 1 ]] || { usage; exit 2; }
@@ -187,17 +219,14 @@ def role_bypass_present(want_type; want_id):
   ),
 
   # bypass-defeats-deletion-restriction (this repo's own rule -- see the
-  # header comment for the incident that grounds it, and for why this
-  # checks exactly RepositoryRole admin (id=5) + OrganizationAdmin and
-  # nothing finer-grained). A deletion rule whose bypass list already
-  # covers both the repo's own top role AND every org owner protects
-  # nobody who could otherwise have deleted the branch.
+  # header comment for the incident that grounds it, the citation for why
+  # OrganizationAdmin alone is enough to fire, and the stated assumption
+  # -- not a citation -- for why RepositoryRole admin (id=5) alone is not).
   ( if ((.rules // []) | any(.type == "deletion"))
-       and role_bypass_present("RepositoryRole"; 5)
        and role_bypass_present("OrganizationAdmin"; null)
     then
       { rule: "bypass-defeats-deletion-restriction",
-        message: "a \"deletion\" rule is present but bypass_actors grants an always-bypass to BOTH RepositoryRole \"admin\" (id=5) AND OrganizationAdmin -- between them that is every person with admin-level access to this repository, whether granted directly or inherited from being an org owner. The rule's stated intent (\"restrict deletions\") and its actual effect (nobody with admin access is restricted) diverge. Narrow bypass_actors or drop the deletion rule; do not ship both." }
+        message: "a \"deletion\" rule is present but bypass_actors grants an always-bypass to OrganizationAdmin -- GitHub gives every organization owner admin access to every repository the org owns (https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization), so this bypass alone already covers every org owner's admin-level access to this repository, whether or not a RepositoryRole \"admin\" (id=5) bypass is also present. The rule's stated intent (\"restrict deletions\") and its actual effect (no org owner is restricted) diverge. Narrow bypass_actors or drop the deletion rule; do not ship both." }
     else empty
     end
   )

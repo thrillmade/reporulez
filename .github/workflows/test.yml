@@ -2,10 +2,14 @@ name: test
 
 # Reporulez is bash + JSON + YAML, no test runner. `test` here lints
 # every shipped artifact so a malformed PR breaks loudly here rather
-# than at install time on someone else's repo:
+# than at install time on someone else's repo, and runs the one real
+# behavioral regression suite the repo has:
 #   - `bash -n` per-file syntax check on bin/*.sh
 #   - jq-parse every ruleset/template JSON
 #   - yaml-parse every dependabot template YAML
+#   - tests/test-validate-ruleset.sh -- bin/validate-ruleset.sh's own
+#     regression guard (reporulez#68), including the case that every
+#     shipped rulesets/*.json must itself pass the validator (PR #69)
 
 on:
   pull_request:
@@ -46,3 +50,10 @@ jobs:
           find templates -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 \
             | xargs -0 -I{} python3 -c "import sys, yaml; yaml.safe_load(open(sys.argv[1])); print(f'  {sys.argv[1]}: OK')" {}
           echo "All shipped YAML templates parse cleanly."
+
+      - name: bin/validate-ruleset.sh regression suite
+        # reporulez#68 / PR #69: the syntax/parse checks above never exercise
+        # what a ruleset actually CONTAINS -- this is the only step that does.
+        # Fails CI on any regression in the validator itself, or on a shipped
+        # rulesets/*.json that stops passing it.
+        run: bash tests/test-validate-ruleset.sh

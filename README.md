@@ -37,9 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo public-guard
 
-# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant;
-# Repository admin bypass for clud-bug self-mod PRs is ON BY DEFAULT for
-# this variant), plus your project's pytest matrix as extra required checks:
+# Full clud-bug + logmind stack (canonical 4 contexts ship in the variant),
+# plus your project's pytest matrix as extra required checks:
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo skdd \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
@@ -53,11 +52,11 @@ Only works against variants that ship `required_status_checks`
 (`skdd`, `clud-bug`); errors cleanly on `baseline`/`public-guard` since they deliberately
 omit that rule.
 
-`--bypass-admin` adds the **Repository admin** role to `bypass_actors`. **Default
-ON for `skdd`** (the self-mod use case practically always needs it);
-default OFF for `baseline`/`clud-bug`/`public-guard`. Override the per-variant default with
-`--no-bypass-admin` to force off, or `--bypass-admin` to force on. See
-[Admin bypass flag](#admin-bypass-flag) below for the rationale.
+Every variant above ships `bypass_actors` pre-populated with the **Repository
+admin** role — unconditionally, not just for `skdd`. `--bypass-admin` is an
+idempotent no-op against that default; `--no-bypass-admin` strips it, and
+doing so will make `apply.sh`'s own pre-apply validation refuse the run (see
+[Admin bypass flag](#admin-bypass-flag) below for why, and what to do instead).
 
 Requires the [`gh`](https://cli.github.com) CLI authenticated against the target repo, and `jq`.
 
@@ -128,37 +127,60 @@ Pass `--human-review` only if you want to layer a human approver on top.
 `--bypass-admin` pre-populates `bypass_actors` with the **Repository admin** role
 (`actor_type: RepositoryRole`, `actor_id: 5`, `bypass_mode: always`).
 
-**Per-variant default:**
-- `skdd` → **ON by default** (the variant's self-mod use case practically
-  always needs the bypass — without it every routine clud-bug self-mod deadlocks).
-  Use `--no-bypass-admin` to opt out.
-- `baseline`, `clud-bug`, `public-guard` → **OFF by default** (no built-in self-mod use case).
-  Pass `--bypass-admin` to opt in.
+**Every variant ships this bypass by default now** — `baseline`, `clud-bug`,
+`public-guard`, and `skdd` alike. That used to be true only for `skdd`, on the
+reasoning that the other three "don't have a self-mod ceremony built in." That
+reasoning was backwards: [protocol SPEC section 6.6](https://github.com/thrillmade/protocol)
+requires the admin bypass **unconditionally** — "the ruleset MUST carry a bypass
+held by repository administrators... a change to a gate's own workflow cannot
+pass the gate it changes, and an incident fix cannot wait for one." A ruleset
+with *no* self-mod ceremony needs the bypass *more*, not less, because there is
+no other legal path past a gate that is blocking its own fix. `rulesets/*.json`
+now bake the bypass in directly (not just at apply time), so a bare `apply.sh
+owner/repo` with no flags at all — the Quickstart default — ships a conformant
+ruleset, and so does pointing `bin/validate-ruleset.sh` straight at any of
+`rulesets/*.json`.
 
-**Why it matters for clud-bug:** `clud-bug`'s reviewer action (`anthropics/claude-code-action`)
-deliberately refuses (HTTP 401) to review pull requests that modify its own workflow
-files under `.github/workflows/clud-bug-*.yml`. This is a self-mod guard — without it,
-a malicious PR could rewrite the reviewer to rubber-stamp itself. The cost is that
-*legitimate* self-mod PRs (e.g. routine `npx clud-bug upgrade` version bumps) also
-fail the required `clud-bug-review` check and deadlock against `required_status_checks`.
+- `--bypass-admin` is therefore an **idempotent no-op** against the shipped
+  default (it dedupes rather than duplicating). Still useful against a forked
+  or hand-edited ruleset that doesn't carry the bypass yet.
+- `--no-bypass-admin` **strips it explicitly**. Doing so on any of these
+  variants leaves `bypass_actors` with no qualifying admin bypass at all, so
+  `apply.sh`'s own pre-apply `validate-ruleset.sh` call refuses the run —
+  admin-bypass-required is unconditional, so there is no flag combination that
+  gets you a conformant ruleset without it. Pass `--no-bypass-admin` only if
+  you plan to supply a different qualifying bypass yourself (e.g. an
+  `OrganizationAdmin` entry) before applying.
 
-Three ways out:
-1. **`--bypass-admin` (default ON for `skdd`):** a repo admin can merge
+**Why it matters for clud-bug specifically:** `clud-bug`'s reviewer action
+(`anthropics/claude-code-action`) deliberately refuses (HTTP 401) to review pull
+requests that modify its own workflow files under `.github/workflows/clud-bug-*.yml`.
+This is a self-mod guard — without it, a malicious PR could rewrite the reviewer
+to rubber-stamp itself. The cost is that *legitimate* self-mod PRs (e.g. routine
+`npx clud-bug upgrade` version bumps) also fail the required `clud-bug-review`
+check and deadlock against `required_status_checks`. This is the sharpest example
+of SPEC 6.6's general point, not a special case of it — `skdd` and `clud-bug`
+just make the deadlock visible sooner because they ship `required_status_checks`.
+
+Three ways out of a deadlocked self-mod PR:
+1. **The admin bypass (on by default on every variant):** a repo admin can merge
    the stuck PR via "Bypass branch protections" without touching the ruleset.
 2. **Hand-PATCH `bypass_actors` mid-merge** via `gh api --method PUT repos/$REPO/rulesets/$ID`
    — works once, but every fresh install needs the same manual setup.
 3. **Toggle `enforcement: disabled` globally**, merge, re-enable — opens a real
    policy-gap window where the ruleset doesn't protect *anything*.
 
-The flag works with any variant; we made it the default ONLY for `skdd`
-because that's the variant whose required-checks list is opinionated about clud-bug
-specifically, and clud-bug's self-mod ceremony is a normal recurring flow there.
-
 **Org repos:** the `RepositoryRole` admin role exists on both personal and org-managed
-repos, so `--bypass-admin` works in both contexts. Org owners on an org-managed repo
-already inherit admin access to the repo and can use the same bypass. If you want a
-*separate* org-administrator bypass entry (`actor_type: OrganizationAdmin`, `actor_id: 1`),
-add it manually after install — including it by default would 404 on personal repos.
+repos, so `--bypass-admin` works in both contexts. Whether it *also* covers an org owner who
+holds no explicit Admin role on this specific repo is not something GitHub documents (see
+[Validating a ruleset before it applies](#validating-a-ruleset-before-it-applies) for the same
+open question, and why `bin/validate-ruleset.sh` assumes the narrower reading). If you want an
+org owner covered unconditionally, add a *separate* org-administrator bypass entry
+(`actor_type: OrganizationAdmin`, `actor_id: 1`) manually after install — including it by
+default would 404 on personal repos, and per `bypass-defeats-deletion-restriction` it will make
+`validate-ruleset.sh` refuse this ruleset once you also carry a `deletion` rule (which every
+variant here does), since GitHub gives every org owner admin access to every repo in the org
+unconditionally, making that bypass alone enough to defeat "restrict deletions" for all of them.
 
 ## Org-level baseline
 
@@ -178,11 +200,24 @@ repos created *after* you run it, so new repos are protected the moment they exi
 per-repo follow-up.
 
 **What it enforces (org-wide floor):** PRs required (no direct default-branch pushes), force
-pushes blocked, default-branch deletion blocked. An **OrganizationAdmin** bypass
-(`bypass_mode: always`) is baked in so an org owner can unstick an edge case without disabling
-the ruleset. It is deliberately minimal — it omits the linear-history / squash-only / thread-
-resolution opinions the per-repo variants carry, so it never breaks a repo that legitimately
-wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
+pushes blocked, default-branch deletion blocked. A **Repository admin** bypass (`RepositoryRole`
+`admin`, id=5, `bypass_mode: always`) is baked in so a repo's own admins can unstick an edge case
+without disabling the ruleset. It is deliberately minimal — it omits the linear-history /
+squash-only / thread-resolution opinions the per-repo variants carry, so it never breaks a repo
+that legitimately wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
+
+> **Why `RepositoryRole` `admin` and not `OrganizationAdmin`, given this ruleset carries a
+> `deletion` rule:** it used to be `OrganizationAdmin`. `bin/validate-ruleset.sh`'s
+> `bypass-defeats-deletion-restriction` check now flags that combination — GitHub gives every
+> organization owner admin access to every repository the org owns, unconditionally (see
+> [Validating a ruleset before it applies](#validating-a-ruleset-before-it-applies)), so an
+> `OrganizationAdmin` always-bypass on a `deletion` rule was already defeating that rule for
+> every org owner, org-wide, in exactly the shape of the incident the check exists for. Switching
+> to `RepositoryRole` `admin` is a real behavior change, not just a label swap: the bypass is now
+> scoped to whoever holds the Admin role on *that specific repo*, rather than every org owner
+> everywhere. An org owner who holds no explicit Admin role on a given repo may no longer be able
+> to unstick an edge case there through this org-wide bypass alone — they'd need to be granted
+> that repo's Admin role, or rely on a per-repo `bin/apply.sh` ruleset's own bypass instead.
 
 **It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
 ruleset that targets a branch, and a write must satisfy **all** of them. So the org floor and
@@ -275,23 +310,25 @@ The script is idempotent — running it twice updates the existing ruleset inste
    `.github/dependabot.yml` (consistent with how `--extra-check` and the
    other flags overwrite the ruleset on re-apply).
 
-   > **Known limitation** (ecosystem switch on re-apply, baseline/clud-bug/
-   > public-guard only): switching the `--with-dependabot=<eco>` value on a repo
-   > that already has the ruleset applied will fail the contents PUT
-   > because the existing ruleset's `pull_request` rule blocks direct
-   > default-branch writes. The `--bypass-admin` flag does **not** help
-   > here — it only mutates the in-memory ruleset JSON that step 3
-   > applies; it does not patch the existing ruleset that step 2's
-   > PUT runs against. The actual prerequisite is that the target
-   > repo's *existing* ruleset already contains Repository admin in
-   > `bypass_actors`. For `skdd` that's the variant
-   > default, so first-time AND ecosystem-switching applies both
-   > work. For `baseline`/`clud-bug`/`public-guard`, only first-apply and idempotent
-   > re-apply work without manual intervention; ecosystem-switching
-   > requires either temporarily editing the existing ruleset on
-   > GitHub (Settings → Rules → Rulesets → `reporulez-default` →
-   > add Repository admin to `Bypass list`) or temporarily deleting
-   > the existing ruleset before re-applying.
+   > **Known limitation, now narrower** (ecosystem switch on re-apply):
+   > switching the `--with-dependabot=<eco>` value on a repo that already has
+   > the ruleset applied will fail the contents PUT because the existing
+   > ruleset's `pull_request` rule blocks direct default-branch writes. The
+   > `--bypass-admin` flag does **not** help here — it only mutates the
+   > in-memory ruleset JSON that step 3 applies; it does not patch the
+   > existing ruleset that step 2's PUT runs against. The actual prerequisite
+   > is that the target repo's *existing* ruleset already contains Repository
+   > admin in `bypass_actors`. Since every variant now ships that bypass by
+   > default (see [Admin bypass flag](#admin-bypass-flag)), this works out of
+   > the box for `baseline`/`clud-bug`/`public-guard`/`skdd` alike, as long as
+   > the repo's existing ruleset was applied with a version of `apply.sh`
+   > from this change or later (or with an explicit `--bypass-admin`) and was
+   > not applied with `--no-bypass-admin`. If the *existing* ruleset predates
+   > this change (or was explicitly applied with `--no-bypass-admin`) and has
+   > an empty `bypass_actors`, ecosystem-switching still requires either
+   > temporarily editing the existing ruleset on GitHub (Settings → Rules →
+   > Rulesets → `reporulez-default` → add Repository admin to `Bypass list`)
+   > or temporarily deleting the existing ruleset before re-applying.
 3. **Verify entitlement / app install:**
    - `clud-bug` variant: [clud-bug](https://github.com/thrillmade/clud-bug) must be installed —
      the `clud-bug-review` check comes from its workflow; without it, PRs block forever under strict mode.
@@ -336,17 +373,22 @@ What it checks:
   id=5, or `OrganizationAdmin`). A ruleset with no bypass at all blocks
   its own repair.
 - **`bypass-defeats-deletion-restriction`** — a `deletion` rule whose
-  `bypass_actors` grants an always-bypass to BOTH `RepositoryRole` `admin`
-  (id=5) AND `OrganizationAdmin` protects nobody who could otherwise have
-  deleted the branch — every person with admin-level access to the repo is
-  covered either way. Written after a live incident: an org ruleset on
-  `thrillmade/agent-skills` was `Active`, targeted `dev`, and had "Restrict
-  deletions" checked, and `dev` was deleted anyway, because its bypass list
-  already covered every admin-level actor. See the script's own header
-  comment for the full account, including why the check does not also name
-  a third role (GitHub does not publish a stable numeric-id mapping for
-  anything but `RepositoryRole` `admin = 5`, and guessing one would not
-  have caught the actual incident).
+  `bypass_actors` grants an always-bypass to `OrganizationAdmin` protects
+  nobody who could otherwise have deleted the branch, on its own: GitHub
+  gives every organization owner admin access to every repository the org
+  owns, unconditionally, so that bypass alone is already every org owner's
+  real admin-level access to the repo — whether or not a `RepositoryRole`
+  `admin` (id=5) bypass is *also* present. Written after a live incident: an
+  org ruleset on `thrillmade/agent-skills` was `Active`, targeted `dev`, and
+  had "Restrict deletions" checked, and `dev` was deleted anyway, because
+  its bypass list already covered every admin-level actor. `RepositoryRole`
+  `admin` alone (no `OrganizationAdmin`) is not flagged — that's a stated
+  assumption, not a citation (GitHub doesn't document whether ruleset
+  bypass matching for `RepositoryRole` uses a user's assigned role or their
+  effective permission, which for an org owner is always "admin"). See the
+  script's own header comment for the full account, the citation for the
+  `OrganizationAdmin` half, and what would falsify the `RepositoryRole`
+  assumption.
 
 Exit codes: `0` valid, `1` invalid (violations printed, one per line), `2`
 usage/input error (bad path, unreadable stdin, not valid JSON) — a ruleset

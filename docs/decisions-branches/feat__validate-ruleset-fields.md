@@ -24,3 +24,16 @@
 
 ---
 
+## 2026-08-24 09:13 - Fix three PR #69 panel findings: bake the admin bypass into rulesets/*.json so the Quickstart default passes its own validator, wire the validator suite into CI, and make bypass-defeats-deletion-restriction fire on an OrganizationAdmin-only bypass
+
+**Reasoning:** The validator's admin-bypass-required check was unconditional (SPEC 6.6) but rulesets/{baseline,clud-bug,public-guard,skdd}.json shipped bypass_actors:[], so the README's own first three Quickstart commands failed at the validator gate the same PR introduced; tests/test-validate-ruleset.sh was never wired into .github/workflows/test.yml despite its header comment claiming it was, so that regression shipped un-caught; and bypass-defeats-deletion-restriction required BOTH RepositoryRole admin AND OrganizationAdmin before firing on an uncited completeness claim, missing this repo's own rulesets/org-baseline.json, which ships OrganizationAdmin alone on a deletion rule -- GitHub's own docs (org owners have admin access to every repo the org owns) settle that OrganizationAdmin alone is already enough
+
+**Alternatives considered:** Make admin-bypass-required conditional on variant instead of fixing the rulesets (rejected: reports green on a real SPEC 6.6 violation), Document that every apply.sh invocation now requires --bypass-admin instead of fixing the defaults (rejected: a gate nobody keeps passing), Leave bypass-defeats-deletion-restriction requiring both actor types since no citation was found either way (rejected once a citation for the OrganizationAdmin half was found: GitHub's repository-roles-for-an-organization doc)
+
+**Implications:**
+- --no-bypass-admin now has real teeth (it strips the baked-in bypass) and will make apply.sh's own pre-apply validation refuse the run unless a different qualifying bypass is supplied -- that is SPEC 6.6 doing its job, not a regression
+- rulesets/org-baseline.json's bypass actor changed from OrganizationAdmin to RepositoryRole admin (id=5); an org owner with no explicit Admin role on a given repo may no longer be able to unstick an edge case there through the org-wide bypass alone, documented in README's Org-level baseline section
+- Whether a RepositoryRole admin bypass alone also covers an org owner's effective (not assigned) permission remains uncited and is stated as a falsifiable assumption in bin/validate-ruleset.sh's header comment, not asserted as fact
+
+---
+

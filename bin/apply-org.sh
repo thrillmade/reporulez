@@ -7,7 +7,12 @@
 # created in the future — with one ruleset, instead of running bin/apply.sh
 # once per repo. The only variant today is `org-baseline` (the default): a
 # minimal structural floor (PR required, no force-push, no default-branch
-# deletion) that applies org-wide with an OrganizationAdmin bypass baked in.
+# deletion) that applies org-wide with a Repository admin bypass baked in
+# (RepositoryRole "admin", id=5 -- not OrganizationAdmin: see
+# rulesets/org-baseline.json's own bypass_actors and README's "Org-level
+# baseline" section for why bin/validate-ruleset.sh's
+# bypass-defeats-deletion-restriction check rules out OrganizationAdmin on
+# a ruleset that carries a deletion rule, which this one does).
 #
 # Org-level and repo-level rulesets LAYER — GitHub evaluates every ruleset
 # that targets a branch and a write must satisfy all of them. This script
@@ -135,8 +140,11 @@ What this does:
   - Protects the default branch of EVERY repo in '$ORG', including future repos.
   - PRs required (no direct default-branch pushes), force pushes blocked,
     default-branch deletion blocked.
-  - OrganizationAdmin can bypass (bypass_mode=always) to unstick edge cases
-    without disabling the ruleset.
+  - Repository admin (RepositoryRole "admin", per-repo) can bypass
+    (bypass_mode=always) on a given repo to unstick an edge case there
+    without disabling the ruleset. This does NOT cover an org owner who
+    holds no explicit Admin role on that specific repo -- see README's
+    "Org-level baseline" section for why (bypass-defeats-deletion-restriction).
 
 Notes:
   - This LAYERS with any per-repo rulesets from bin/apply.sh — it never

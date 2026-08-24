@@ -57,17 +57,28 @@ assert_case "valid-full fixture passes" 0 \
   "is valid" \
   "$VALIDATOR" "$FIXTURES/valid-full.json"
 
-assert_case "repo admin bypass without OrganizationAdmin is not flagged" 0 \
+assert_case "repo admin bypass without OrganizationAdmin, no deletion rule, is not flagged" 0 \
   "is valid" \
   "$VALIDATOR" "$FIXTURES/partial-role-bypass-safe.json"
+# partial-role-bypass-safe.json HAS a deletion rule (RepositoryRole admin
+# only, no OrganizationAdmin) -- see the bypass-defeats-deletion-restriction
+# section below for why that combination is still safe under this check.
 
-assert_case "OrganizationAdmin bypass without repo admin is not flagged" 0 \
-  "is valid" \
-  "$VALIDATOR" "$FIXTURES/orgadmin-only-safe.json"
-
-assert_case "org-baseline.json (real shipped ruleset) passes" 0 \
-  "is valid" \
-  "$VALIDATOR" "$REPO_ROOT/rulesets/org-baseline.json"
+# Every SHIPPED ruleset must itself pass the validator (reporulez PR #69,
+# panel finding 1). Before this loop, only org-baseline.json had an explicit
+# case here -- baseline.json / clud-bug.json / public-guard.json / skdd.json
+# were never exercised. That gap is exactly how admin-bypass-required shipped
+# in the same PR as three rulesets that fail it outright: apply.sh's own
+# flagless Quickstart default (baseline) POSTs rulesets/baseline.json's
+# bypass_actors unmodified, and nothing here would have caught the
+# collision. Loop over every file under rulesets/ rather than naming them,
+# so a FUTURE variant added without a qualifying admin bypass fails this
+# test too, not just the ones that exist today.
+for f in "$REPO_ROOT"/rulesets/*.json; do
+  assert_case "$(basename "$f") (shipped ruleset) passes the validator" 0 \
+    "is valid" \
+    "$VALIDATOR" "$f"
+done
 
 assert_case "stdin mode ('-') works" 0 \
   "is valid" \
@@ -84,13 +95,14 @@ assert_case "wrong integration_id on clud-bug-review is flagged" 1 \
   "$VALIDATOR" "$FIXTURES/wrong-integration-id.json"
 
 assert_case "real skdd.json (has the correct pin) does not trip integration-id-pin" 0 \
-  "-" \
-  bash -c "'$VALIDATOR' '$REPO_ROOT/rulesets/skdd.json' 2>&1 | grep -v integration-id-pin | grep -q admin-bypass-required"
-# skdd.json ships bypass_actors:[] by design (--bypass-admin defaults on
-# at apply time, not baked into the file) -- it SHOULD still fail
-# admin-bypass-required, but it must NOT fail integration-id-pin, since
-# the file already carries the correct pin. This asserts the second half;
-# the case above (missing/wrong pin) asserts the check fires when it should.
+  "is valid" \
+  "$VALIDATOR" "$REPO_ROOT/rulesets/skdd.json"
+# skdd.json ships a correctly-pinned clud-bug-review context AND (as of the
+# admin-bypass-required fix below) a baked-in Repository admin bypass, so
+# it's fully valid standalone -- not just "doesn't trip integration-id-pin
+# while still failing something else". The case above (missing/wrong pin)
+# asserts the check fires when it should; this asserts the real shipped file
+# doesn't false-positive on it.
 
 # --- admin-bypass-required (SPEC section 6.6) ---------------------------
 
@@ -119,6 +131,29 @@ assert_case "bypass covering repo admin + OrganizationAdmin defeats deletion rul
 assert_case "deletion rule with only admin bypass is not flagged" 0 \
   "is valid" \
   "$VALIDATOR" "$FIXTURES/valid-full.json"
+
+# reporulez PR #69 panel finding 3: the check used to require BOTH
+# RepositoryRole admin AND OrganizationAdmin before firing, which under-fired
+# -- an OrganizationAdmin-only always-bypass on a deletion rule passed clean,
+# and that was this repo's OWN shipped rulesets/org-baseline.json. GitHub
+# gives every org owner admin access to every repo in the org unconditionally
+# (cited in the script's header comment), so OrganizationAdmin alone is
+# already enough; RepositoryRole admin no longer needs to co-occur.
+
+assert_case "OrganizationAdmin bypass ALONE (no RepositoryRole admin) defeats a deletion rule" 1 \
+  "[bypass-defeats-deletion-restriction]" \
+  "$VALIDATOR" "$FIXTURES/orgadmin-only-defeats-deletion.json"
+# This is the exact shape rulesets/org-baseline.json shipped with before
+# this PR's fix (see the loop above, which now passes because org-baseline.json
+# was switched to a RepositoryRole admin bypass instead).
+
+assert_case "OrganizationAdmin bypass without a deletion rule at all is not flagged" 0 \
+  "is valid" \
+  "$VALIDATOR" "$FIXTURES/orgadmin-no-deletion-rule-safe.json"
+# Control for the "and a deletion rule is present" half of the condition --
+# without this case, a mutation that drops the deletion-rule check entirely
+# (firing on OrganizationAdmin alone regardless of rules) would go
+# undetected.
 
 # --- multiple violations at once ----------------------------------------
 
