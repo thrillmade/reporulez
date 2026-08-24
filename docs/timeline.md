@@ -13,10 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
-## 2026-08 (3 decisions)
+## 2026-08 (4 decisions)
 
-- **2026-08-24** — Fix three PR #69 panel findings: bake the admin bypass into rulesets/*.json so the Quickstart default passes its own validator, wire the validator suite into CI, and make bypass-defeats-deletion-restriction fire on an OrganizationAdmin-only bypass *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
-- *... 1 more decision ...*
+- **2026-08-24** — reporulez PR #69 pass 2: bypass-defeats-deletion-restriction was refuting a false claim as a hard gate; downgrade to WARNING, fix the message, and revert org-baseline.json's admin-bypass swap *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
+- *... 2 more decisions ...*
 - **2026-08-24** — reporulez#68: bin/validate-ruleset.sh -- validate a ruleset's required fields before it is ever applied *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
 
 ## 2026-07 (3 decisions)
