@@ -45,10 +45,32 @@ bash -n bin/apply.sh
 
 # Apply rulesets to a target repo (dogfood / end-to-end test)
 ./bin/apply.sh <owner/repo> [copilot|external] [--human-review]
+
+# The validator's own regression guard — run it before you push
+bash tests/test-validate-ruleset.sh
 ```
 
-There is no test suite. End-to-end validation is "apply against a throwaway
-repo and inspect via the GitHub UI / API."
+`tests/test-validate-ruleset.sh` covers `bin/validate-ruleset.sh` and nothing
+else. The installers are still validated end-to-end by hand: apply against a
+throwaway repo and inspect via the GitHub UI / API. No count or duration is
+quoted here on purpose — run it and read the output.
+
+## The `dev` branch
+
+reporulez follows the same convention as every other thrillmade repo: **work
+lands on `dev` first and reaches `main` in batches.** This is the
+organisation's rule, not this repo's, and adopting it here is not a local
+decision — the absence of a `dev` branch before 2026-08-24 was an omission,
+not a deliberate single-branch design.
+
+**Branch from `dev`, and open the pull request into `dev`.** The forge default
+base is `main`, so set it by hand.
+
+**Into `dev`: an independent adversarial review.** A different agent than the
+one that wrote the change — a fresh context window on the same agent is not a
+different agent.
+
+**Into `main`: a person.** An agent reports the batch ready and hands off.
 
 ## Contributor Setup
 

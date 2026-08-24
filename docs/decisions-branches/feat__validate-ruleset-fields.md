@@ -13,3 +13,14 @@
 
 ---
 
+## 2026-08-24 08:38 - reporulez adopts the dev-branch convention, and AGENTS.md stops claiming there is no test suite
+
+**Reasoning:** Two lines in AGENTS.md became false in this PR's own diff. 'There is no test suite' was true when written; tests/test-validate-ruleset.sh lands here with 17 fixture-driven cases, so the doc was telling the next contributor to go looking for a gate sitting right in front of them. Separately, reporulez had no dev branch and nothing in AGENTS.md, README.md, CONVENTIONS.md or docs/ mentioned a dev->main promotion -- which reads as a deliberate single-branch design. It is not one. Every other thrillmade repo lands on dev first and the convention is the organisation's, so adopting it here was never a local call.
+
+**Alternatives considered:** Leave reporulez main-only and document that as deliberate. Rejected: the silence is an omission, not a design, and the org rule is not a per-repo choice. Also considered: split these two corrections into their own PR. Rejected: both are made false BY this diff, and docs are kept true in the same pass the work lands.
+
+**Implications:**
+- refs/heads/dev now exists at d3720c1 and this PR targets it; future reporulez work branches from dev. The test-suite line is scoped deliberately -- the suite covers bin/validate-ruleset.sh and nothing else, and the installers stay hand-validated end-to-end. No test count or duration is quoted in the doc, because a hand-kept number with no gate behind it reads as true until one quietly isn't.
+
+---
+
