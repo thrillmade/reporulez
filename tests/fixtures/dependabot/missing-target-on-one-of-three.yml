@@ -1,0 +1,22 @@
+# Three `updates` entries, only two carry target-branch: "dev" -- the
+# exact shape the check must not pass: reporulez#71 says explicitly "a
+# file with three updates entries where only two carry the key must fail,
+# not pass." The npm `/site` entry (the middle one) is the one left bare.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"

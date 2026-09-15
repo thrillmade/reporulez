@@ -1,0 +1,29 @@
+# This is not a hypothetical: it is reporulez's OWN .github/dependabot.yml
+# as it exists on `main` today (reporulez#71 was filed 2026-09-15; this was
+# copied verbatim via `git show origin/main:.github/dependabot.yml` while
+# building the check the same day). reporulez ships the org's dependabot
+# templates and enforces the org's branch policy, and its own default-
+# branch dependabot.yml still lacks target-branch: "dev" -- the exact
+# defect class this check exists to catch. This is this script's control
+# test: a known-real non-zero case, not just a hand-built fixture the
+# check was fitted to. See real-reporulez-fixed.yml for the corrected
+# shape (not applied to reporulez's actual file in this PR -- PRs editing
+# .github/dependabot.yml must target `main` directly, since GitHub only
+# reads dependabot config from the default branch; this PR targets `dev`
+# per reporulez#71's own ask, so fixing reporulez's own file is left as a
+# separate main-targeted follow-up).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      thrillmade:
+        patterns:
+          - "thrillmade/*"
