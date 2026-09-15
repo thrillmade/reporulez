@@ -11,3 +11,14 @@
 
 ---
 
+## 2026-09-15 14:53 - fix: check_one's verdict never survived --all --quiet's subshell (clud-bug PR #73 review)
+
+**Reasoning:** clud-bug's review of PR #73 (Wasp/opus, pass 2, found independently) caught a real, severe bug: check_one signaled its verdict via a global variable (CHECK_VERDICT) set from inside the function, but --all --quiet's call site wraps check_one in a command substitution (FINDINGS="$(check_one ...)"), which bash always runs in a subshell -- so the assignment made inside check_one never reached the parent shell. Reproduced live before fixing (two stubbed-gh runs): --all --quiet against an org where every repo was 100% compliant still exited 1, unconditionally, on every run; a mixed clean+bad run printed the CLEAN repo's line too, defeating --quiet's whole purpose. Root cause confirmed by a targeted mutation afterward: reintroducing the exact global-variable pattern flips two new regression tests red (added specifically because the original suite never exercised --all with more than zero repos, which is exactly why this shipped in the first PR).
+
+**Alternatives considered:** Keep the global-variable convention and just remember not to wrap check_one in $(...) -- rejected: that's exactly the discipline that already failed once (the original code's own comment explicitly reasoned about set -e and subshells and still got it wrong for this call site). Fixed the class instead: check_one now returns its verdict via its own exit status (0 clean / 1 violation / 2 no-updates / 3 parse-error), which DOES survive $(...) correctly -- $? after x="$(f)" is f's real exit code regardless of what f assigned to variables inside the subshell -- so every call site uses the same 'cmd && rc=0 || rc=$?' idiom already established elsewhere in this file, with no special case for the wrapped-in-$() call site to get wrong again.
+
+**Implications:**
+- Also fixed the minor finding from the same review pass (fetch_repo_yaml conflated a genuine fetch failure with a successfully-fetched-but-empty dependabot.yml under the same empty-string signal -- both still correctly exited 2, but the error message misreported which one happened; now distinguished via the function's own exit status, same fix shape as the critical bug). Did NOT act on the review's third finding (actions/checkout@v7 'does not exist') -- verified false via gh api repos/actions/checkout/releases (v7.0.1 is real and current) and confirmed the same pin already ships unmodified in this repo's own pre-existing test.yml and check-doc-links.yml, neither touched by this PR.
+
+---
+

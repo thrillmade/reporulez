@@ -155,6 +155,74 @@ assert_case "--all requires an owner argument" 2 \
   "-" \
   "$CHECK" --all
 
+# --- --all --quiet with MULTIPLE repos: the exact regression clud-bug's
+# review of thrillmade/reporulez#73 caught for real -----------------------
+#
+# The original version of this suite never exercised --all against more
+# than zero repos, so it never caught this: `FINDINGS="$(check_one ...)"`
+# forks a subshell for the command substitution, and an earlier
+# implementation set a "verdict" GLOBAL VARIABLE from inside check_one --
+# which is lost the instant that subshell exits. Live consequence,
+# reproduced and confirmed before the fix: `--all --quiet` against an org
+# where EVERY repo was 100% compliant still exited 1, unconditionally,
+# every single run -- because the caller's read of the verdict was always
+# stale/empty, never "clean". Fixed by having check_one return its
+# verdict via its own exit status instead (which DOES survive $(...) --
+# `$?` after `x="$(f)"` reflects f's real exit code regardless of what
+# f assigned to variables inside the subshell). These two cases pin
+# exactly that: one all-clean multi-repo run (must exit 0), one mixed run
+# where --quiet must print ONLY the non-compliant repo.
+
+MULTI_STUB="$STUB_DIR/multi-repo-gh"
+mkdir -p "$MULTI_STUB"
+cat > "$MULTI_STUB/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "auth status" ]]; then exit 0; fi
+if [[ "$1" == "api" && "$2" == --paginate ]]; then
+  # $REPO_LIST is exported by the test case below, one repo per line.
+  printf '%s\n' "$REPO_LIST"
+  exit 0
+fi
+if [[ "$1" == "api" ]]; then
+  # repos/<repo>/contents/.github/dependabot.yml --jq .content
+  case "$2" in
+    *repo-bad*) printf 'version: 2\nupdates:\n  - package-ecosystem: "npm"\n' | base64 ;;
+    *) printf 'version: 2\nupdates:\n  - package-ecosystem: "npm"\n    target-branch: "dev"\n' | base64 ;;
+  esac
+  exit 0
+fi
+echo "unexpected stub gh invocation: $*" >&2
+exit 9
+GHSTUB
+chmod +x "$MULTI_STUB/gh"
+
+REPO_LIST="thrillmade/all-clean-1
+thrillmade/all-clean-2" \
+PATH="$MULTI_STUB:$PATH" assert_case "--all --quiet, every repo compliant: exit 0 (was: always exited 1 before the fix)" 0 \
+  "all 2 repo(s) target" \
+  "$CHECK" --all thrillmade --quiet
+
+REPO_LIST="thrillmade/repo-clean
+thrillmade/repo-bad" \
+PATH="$MULTI_STUB:$PATH" assert_case "--all --quiet, mixed compliance: exit 1, only the bad repo's finding prints" 1 \
+  "thrillmade/repo-bad" \
+  "$CHECK" --all thrillmade --quiet
+
+# The case above only asserts repo-bad's line IS present (assert_case's
+# single-pattern contract). The bug this pins specifically also printed
+# the CLEAN repo's ✓ line in --quiet mode (every repo, every run, since
+# the stale verdict was never "clean") -- assert separately that it does
+# NOT.
+QUIET_MIXED_OUTPUT="$(REPO_LIST="thrillmade/repo-clean
+thrillmade/repo-bad" PATH="$MULTI_STUB:$PATH" "$CHECK" --all thrillmade --quiet 2>&1)"
+if grep -qF "repo-clean" <<< "$QUIET_MIXED_OUTPUT"; then
+  echo "FAIL: --all --quiet mixed compliance -- repo-clean's ✓ line leaked into quiet output (should be suppressed)"
+  echo "  output: $QUIET_MIXED_OUTPUT"
+  FAIL=$((FAIL + 1))
+else
+  PASS=$((PASS + 1))
+fi
+
 # --- --target lets the required branch be overridden -------------------
 
 assert_case "--target overrides the required branch name" 0 \

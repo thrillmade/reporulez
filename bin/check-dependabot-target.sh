@@ -179,19 +179,31 @@ PYEOF
 # one dependabot.yml's text, prints its findings (prefixed with <label>) to
 # STDOUT -- findings are the script's real output, same convention as
 # bin/validate-ruleset.sh's violation lines and bin/audit.sh's ✓/✗ rows;
-# only usage/narration goes to stderr (die/info). Sets the caller-scope
-# variable CHECK_VERDICT to one of:
-#   clean       -- parsed, >=1 entries, all correct
-#   violation   -- parsed, >=1 entries, >=1 wrong or missing
-#   no-updates  -- parsed, but zero `updates` entries (nothing to check)
-#   parse-error -- YAML did not parse, or wasn't a mapping/list where expected
-# A global (not a return-code or captured-output convention) because the
-# verdict must survive the caller wrapping this in `$(...)` to print
-# findings live -- piping through a numeric exit code would collide with
-# `set -e`, and parsing a magic last line of captured output is exactly the
-# kind of fragile indirection this file's own "must not silently pass"
-# theme argues against building on top of.
-CHECK_VERDICT=""
+# only usage/narration goes to stderr (die/info). Returns its verdict via
+# its own exit status:
+#   0  clean       -- parsed, >=1 entries, all correct
+#   1  violation   -- parsed, >=1 entries, >=1 wrong or missing
+#   2  no-updates  -- parsed, but zero `updates` entries (nothing to check)
+#   3  parse-error -- YAML did not parse, or wasn't a mapping/list where expected
+#
+# NOT a global variable set from inside the function -- an earlier version
+# used one (CHECK_VERDICT) on the reasoning that a numeric code "would
+# collide with set -e", but that reasoning was wrong in a way clud-bug
+# caught for real on thrillmade/reporulez#73: `--all --quiet` reported
+# exit 1 EVEN WHEN EVERY REPO WAS 100% COMPLIANT, unconditionally, every
+# run. Root cause: `FINDINGS="$(check_one ...)"` forks a subshell for the
+# command substitution, so an assignment to CHECK_VERDICT made INSIDE
+# check_one during that call never reaches the parent shell -- the
+# caller's read of `$CHECK_VERDICT` afterward saw a stale or empty value,
+# not the just-computed one. A function's own EXIT STATUS does not have
+# this problem: `$?` immediately after `x="$(f)"` is f's real exit code,
+# because that is a property of the command substitution itself, not a
+# side effect made inside it. Callers use the standard
+# `check_one ... && rc=0 || rc=$?` idiom (this file runs under `set -e`,
+# so a bare nonzero return would otherwise abort the script) --
+# see tests/test-check-dependabot-target.sh's "--all --quiet" cases,
+# added specifically because the original suite never exercised --quiet
+# with more than one repo and so never caught this.
 check_one() {
   local yaml_text="$1" label="$2"
   local output rc
@@ -203,14 +215,12 @@ check_one() {
 
   if [[ "$rc" -eq 2 ]] || grep -q '^PARSE_ERROR:' <<< "$output"; then
     echo "✗ $label: could not parse -- $(grep '^PARSE_ERROR:' <<< "$output" | head -1)"
-    CHECK_VERDICT="parse-error"
-    return
+    return 3
   fi
 
   if grep -q '^RESULT: no-updates$' <<< "$output"; then
     echo "✗ $label: dependabot.yml has no 'updates' entries -- nothing to check"
-    CHECK_VERDICT="no-updates"
-    return
+    return 2
   fi
 
   while IFS= read -r line; do
@@ -221,9 +231,9 @@ check_one() {
   violations="$(grep -oE 'violations=[0-9]+' <<< "$output" | grep -oE '[0-9]+' || echo 0)"
   if [[ "$violations" -eq 0 ]]; then
     echo "✓ $label: all updates entries target \"$TARGET_BRANCH\""
-    CHECK_VERDICT="clean"
+    return 0
   else
-    CHECK_VERDICT="violation"
+    return 1
   fi
 }
 
@@ -231,11 +241,23 @@ fetch_repo_yaml() {
   # Fetches <repo>'s .github/dependabot.yml from its DEFAULT branch (the
   # only branch GitHub itself reads dependabot config from -- fetching any
   # other branch would check a copy GitHub never uses). Prints the decoded
-  # YAML text to stdout; returns non-zero if the repo, file, or default
-  # branch lookup fails (e.g. no dependabot.yml on that repo at all).
+  # YAML text to stdout. Returns 1 if the `gh api` call itself failed
+  # (repo/file not found, no access, rate-limited); returns 0 with empty
+  # stdout if the call succeeded but the file's content is genuinely
+  # empty. Callers can and should tell these apart -- an earlier version
+  # of this function funneled both through the same empty-stdout signal,
+  # which clud-bug flagged (thrillmade/reporulez#73 review): a real fetch
+  # failure and "dependabot.yml exists but is a 0-byte file" both died
+  # with the same "could not fetch" message, misreporting the latter.
+  # Both cases still correctly exit 2 either way (the guard this file
+  # exists for holds regardless), so this was a message-accuracy issue,
+  # not a correctness one -- fixed anyway since the distinction is cheap.
   local repo="$1"
-  gh api "repos/$repo/contents/.github/dependabot.yml" --jq '.content' 2>/dev/null \
-    | tr -d '\n' | base64 -d 2>/dev/null
+  local content_b64 rc
+  content_b64="$(gh api "repos/$repo/contents/.github/dependabot.yml" --jq '.content' 2>/dev/null)" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] || return 1
+  printf '%s' "$content_b64" | tr -d '\n' | base64 -d 2>/dev/null
+  return 0
 }
 
 case "$MODE" in
@@ -250,12 +272,12 @@ case "$MODE" in
     fi
     [[ -n "$YAML_TEXT" ]] || die "$LABEL is empty -- nothing to check"
 
-    check_one "$YAML_TEXT" "$LABEL"
-    case "$CHECK_VERDICT" in
-      clean) exit 0 ;;
-      violation) exit 1 ;;
-      no-updates|parse-error) exit 2 ;;
-      *) die "internal error: unrecognized verdict '$CHECK_VERDICT'" ;;
+    check_one "$YAML_TEXT" "$LABEL" && VERDICT_RC=0 || VERDICT_RC=$?
+    case "$VERDICT_RC" in
+      0) exit 0 ;;
+      1) exit 1 ;;
+      2|3) exit 2 ;;
+      *) die "internal error: unrecognized verdict code '$VERDICT_RC'" ;;
     esac
     ;;
 
@@ -263,17 +285,18 @@ case "$MODE" in
     command -v gh >/dev/null || die "gh CLI not found (https://cli.github.com)"
     gh auth status >/dev/null 2>&1 || die "gh not authenticated (run: gh auth login)"
 
-    YAML_TEXT="$(fetch_repo_yaml "$MODE_ARG")" || true
-    if [[ -z "$YAML_TEXT" ]]; then
+    YAML_TEXT="$(fetch_repo_yaml "$MODE_ARG")" && FETCH_RC=0 || FETCH_RC=$?
+    if [[ "$FETCH_RC" -ne 0 ]]; then
       die "could not fetch .github/dependabot.yml from $MODE_ARG's default branch (missing, no access, or rate-limited)"
     fi
+    [[ -n "$YAML_TEXT" ]] || die "$MODE_ARG's .github/dependabot.yml was fetched successfully but is empty -- nothing to check"
 
-    check_one "$YAML_TEXT" "$MODE_ARG"
-    case "$CHECK_VERDICT" in
-      clean) exit 0 ;;
-      violation) exit 1 ;;
-      no-updates|parse-error) exit 2 ;;
-      *) die "internal error: unrecognized verdict '$CHECK_VERDICT'" ;;
+    check_one "$YAML_TEXT" "$MODE_ARG" && VERDICT_RC=0 || VERDICT_RC=$?
+    case "$VERDICT_RC" in
+      0) exit 0 ;;
+      1) exit 1 ;;
+      2|3) exit 2 ;;
+      *) die "internal error: unrecognized verdict code '$VERDICT_RC'" ;;
     esac
     ;;
 
@@ -296,19 +319,24 @@ case "$MODE" in
 
     ANY_VIOLATION=0
     for repo in "${REPOS[@]}"; do
-      YAML_TEXT="$(fetch_repo_yaml "$repo")" || true
-      if [[ -z "$YAML_TEXT" ]]; then
+      YAML_TEXT="$(fetch_repo_yaml "$repo")" && FETCH_RC=0 || FETCH_RC=$?
+      if [[ "$FETCH_RC" -ne 0 ]]; then
         echo "✗ $repo: no .github/dependabot.yml found on default branch (or repo/API error)"
         ANY_VIOLATION=1
         continue
       fi
-      if [[ "$QUIET" == "true" ]]; then
-        FINDINGS="$(check_one "$YAML_TEXT" "$repo")"
-        [[ "$CHECK_VERDICT" == "clean" ]] || echo "$FINDINGS"
-      else
-        check_one "$YAML_TEXT" "$repo"
+      if [[ -z "$YAML_TEXT" ]]; then
+        echo "✗ $repo: .github/dependabot.yml was fetched successfully but is empty -- nothing to check"
+        ANY_VIOLATION=1
+        continue
       fi
-      [[ "$CHECK_VERDICT" == "clean" ]] || ANY_VIOLATION=1
+      if [[ "$QUIET" == "true" ]]; then
+        FINDINGS="$(check_one "$YAML_TEXT" "$repo")" && VERDICT_RC=0 || VERDICT_RC=$?
+        [[ "$VERDICT_RC" -eq 0 ]] || echo "$FINDINGS"
+      else
+        check_one "$YAML_TEXT" "$repo" && VERDICT_RC=0 || VERDICT_RC=$?
+      fi
+      [[ "$VERDICT_RC" -eq 0 ]] || ANY_VIOLATION=1
     done
 
     echo
