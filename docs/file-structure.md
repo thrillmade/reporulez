@@ -21,10 +21,15 @@ reporulez
 ├── .zed
 │   └── settings.json
 ├── bin
+│   ├── apply-org.sh
 │   ├── apply.sh
-│   └── audit.sh
+│   ├── audit.sh
+│   ├── ensure-dev-branch.sh
+│   ├── validate-ruleset.sh
+│   └── verify-integration-id-pin.sh
 ├── docs
 │   ├── decisions-branches
+│   ├── branch-policy.md
 │   ├── decisions-archive.md
 │   ├── decisions.md
 │   ├── file-structure.md
@@ -32,12 +37,18 @@ reporulez
 ├── rulesets
 │   ├── baseline.json
 │   ├── clud-bug.json
+│   ├── org-baseline.json
+│   ├── org-default-protection.json
+│   ├── org-staging.json
 │   ├── public-guard.json
 │   └── skdd.json
 ├── templates
 │   ├── dependabot
 │   ├── CODEOWNERS
 │   └── pull_request_template.md
+├── tests
+│   ├── fixtures
+│   └── test-validate-ruleset.sh
 ├── .clinerules
 ├── .continuerules
 ├── .cursorrules

@@ -1,34 +1,61 @@
 #!/usr/bin/env bash
 # Apply a reporulez ORG-LEVEL ruleset to an entire GitHub organization.
 #
-# Usage: apply-org.sh <org> [org-baseline]
+# Usage: apply-org.sh <org> [org-baseline|org-default-protection|org-staging]
 #
-# Protects the default branch of EVERY repo in the org — including repos
-# created in the future — with one ruleset, instead of running bin/apply.sh
-# once per repo. The only variant today is `org-baseline` (the default): a
-# minimal structural floor (PR required, no force-push, no default-branch
-# deletion) that applies org-wide with an OrganizationAdmin bypass baked in
-# -- not RepositoryRole "admin" (id=5): a repo created by this floor's own
-# "including future repos" promise has no per-repo Admin grant to match
-# against yet, and GitHub documents OrganizationAdmin as provably covering
-# every org owner on every repo, present and future, unconditionally. See
-# rulesets/org-baseline.json's own bypass_actors and README's "Org-level
-# baseline" section for the full reasoning, including why
-# bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check warns
-# (not blocks) on this shape.
+# Protects a branch across EVERY repo in the org — including repos created
+# in the future — with one ruleset, instead of running bin/apply.sh once per
+# repo. Three variants today, matching reporulez#71's two-tier branch model
+# (`main` = default = production, `dev` = staging, everywhere):
+#
+#   org-baseline (the default): a minimal structural floor on the default
+#     branch (PR required, no force-push, no default-branch deletion).
+#     Deliberately permissive — omits linear-history and squash-only so a
+#     repo that genuinely wants merge commits isn't broken org-wide.
+#
+#   org-default-protection: production protection on the default branch AND
+#     `refs/heads/main` explicitly (not just `~DEFAULT_BRANCH` — see below
+#     for why both). Linear history, squash-only, 1 required approval,
+#     code-owner review, thread resolution.
+#
+#   org-staging: protection on `refs/heads/dev` specifically. No approval
+#     floor (agents may merge when green after review, per reporulez#71
+#     ruling 2); force-push is allowed (dev is squash-promoted to main and
+#     synced back, so its history isn't linear-history-gated the way main
+#     is), deletion is still blocked.
+#
+# All three carry an OrganizationAdmin bypass baked in -- not RepositoryRole
+# "admin" (id=5): a repo created by "including future repos" has no
+# per-repo Admin grant to match against yet, and GitHub documents
+# OrganizationAdmin as provably covering every org owner on every repo,
+# present and future, unconditionally. See each rulesets/org-*.json's own
+# bypass_actors and README's "Org-level baseline" section for the full
+# reasoning, including why bin/validate-ruleset.sh's
+# bypass-defeats-deletion-restriction check warns (not blocks) on this shape.
+#
+# WHY org-default-protection's ref_name targets BOTH `~DEFAULT_BRANCH` AND
+# `refs/heads/main` explicitly (reporulez#71): the org's hard rule is "main
+# is the default branch and production, on every repo" — but a repo CAN
+# still have its default branch flipped to something else (accidentally or
+# otherwise), and `~DEFAULT_BRANCH` alone would then silently move
+# production protection onto whatever branch is now default, protecting
+# nothing named `main`. The explicit `refs/heads/main` entry keeps `main`
+# protected even during that misconfigured window, so the gap surfaces as
+# "dev is ALSO getting production rules" (loud, breaks agent auto-merge)
+# rather than "main quietly lost its protection" (silent). It does not fix
+# a flipped default branch — that is a repo setting outside any ruleset's
+# reach; a human must flip it back. See docs/branch-policy.md.
 #
 # Org-level and repo-level rulesets LAYER — GitHub evaluates every ruleset
 # that targets a branch and a write must satisfy all of them. This script
 # therefore never touches, replaces, or overrides per-repo rulesets applied
-# by bin/apply.sh; it adds an org-wide floor beneath them. Because it is a
-# floor, org-baseline is deliberately permissive where the per-repo variants
-# are opinionated (it omits linear-history and squash-only so a repo that
-# genuinely wants merge commits isn't broken org-wide) — tighten individual
-# repos with bin/apply.sh <owner/repo> <variant>.
+# by bin/apply.sh; it adds an org-wide floor beneath them. Tighten
+# individual repos with bin/apply.sh <owner/repo> <variant>.
 #
 # Unlike bin/apply.sh, this script does NOT PATCH per-repo settings
-# (auto-merge, squash-only, delete-on-merge). Those are repo-scoped and have
-# no org-level equivalent — run bin/apply.sh per repo for them.
+# (auto-merge, squash-only, delete-on-merge), and it does NOT create the
+# `dev` branch a repo is missing — see bin/ensure-dev-branch.sh for that.
+# Those are repo-scoped and have no org-level ruleset equivalent.
 #
 # Requires the `gh` CLI authenticated with the `admin:org` scope (managing
 # org rulesets needs it — see the preflight below) and `jq`.
@@ -45,6 +72,8 @@ usage() {
   sed -n '2,4p' "$0" | sed 's/^# //; s/^#//'
 }
 
+ORG_VARIANTS=(org-baseline org-default-protection org-staging)
+
 [[ $# -ge 1 ]] || { usage; exit 1; }
 case "$1" in -h|--help) usage; exit 0 ;; esac
 
@@ -53,9 +82,9 @@ VARIANT="org-baseline"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    org-baseline) VARIANT="$1"; shift ;;
+    org-baseline|org-default-protection|org-staging) VARIANT="$1"; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "unknown argument: $1 (usage: apply-org.sh <org> [org-baseline])" ;;
+    *) die "unknown argument: $1 (usage: apply-org.sh <org> [${ORG_VARIANTS[*]// /|}])" ;;
   esac
 done
 
@@ -135,17 +164,36 @@ else
     || die "failed to create org ruleset on $ORG"
 fi
 
+case "$VARIANT" in
+  org-baseline)
+    WHAT_THIS_DOES="  - Protects the default branch of EVERY repo in '$ORG', including future repos.
+  - PRs required (no direct default-branch pushes), force pushes blocked,
+    default-branch deletion blocked." ;;
+  org-default-protection)
+    WHAT_THIS_DOES="  - Production-protects \`~DEFAULT_BRANCH\` AND \`refs/heads/main\` explicitly
+    on EVERY repo in '$ORG' (the explicit main entry is why this keeps
+    protecting main even if a repo's default branch is ever flipped —
+    see this script's header comment).
+  - Linear history required, squash-only merges, 1 approving review,
+    code-owner review, review-thread resolution required." ;;
+  org-staging)
+    WHAT_THIS_DOES="  - Protects \`refs/heads/dev\` on EVERY repo in '$ORG' where that branch
+    exists (a repo without a \`dev\` branch is unaffected until one is
+    created — see bin/ensure-dev-branch.sh to close that gap).
+  - No approval floor (agents may merge when green, per reporulez#71
+    ruling 2); merge/squash/rebase all allowed; dev-branch deletion
+    blocked." ;;
+esac
+
 cat >&2 <<EOF
 
 OK. Org ruleset '$RULESET_NAME' applied to org '$ORG' (variant: $VARIANT).
 
 What this does:
-  - Protects the default branch of EVERY repo in '$ORG', including future repos.
-  - PRs required (no direct default-branch pushes), force pushes blocked,
-    default-branch deletion blocked.
+$WHAT_THIS_DOES
   - Any organization owner (OrganizationAdmin, bypass_mode=always) can
-    bypass on any repo the floor covers, including one created after this
-    ran, to unstick an edge case there without disabling the ruleset.
+    bypass on any repo this ruleset covers, including one created after
+    this ran, to unstick an edge case there without disabling the ruleset.
     bin/validate-ruleset.sh's bypass-defeats-deletion-restriction check
     notes this as a WARNING, not a block -- see README's "Org-level
     baseline" section for why that bypass, not a per-repo one, is the
@@ -153,8 +201,10 @@ What this does:
 
 Notes:
   - This LAYERS with any per-repo rulesets from bin/apply.sh — it never
-    overrides them. A write must satisfy the org floor AND the repo ruleset.
+    overrides them. A write must satisfy every ruleset that targets it.
   - Tighten individual repos (required status checks, linear history,
     squash-only, human approval) with:
       ./bin/apply.sh <owner/repo> <baseline|clud-bug|skdd|public-guard>
+  - Full policy model (main/dev, why the default branch must never flip):
+    docs/branch-policy.md
 EOF
