@@ -1,0 +1,134 @@
+name: close linked issues
+
+# Reusable workflow (reporulez#71 ask C). GitHub's `Closes #N` auto-close
+# only fires when the closing PR is merged into the repo's DEFAULT
+# branch. reporulez#71 puts everything on `dev` first -- so with that
+# convention, an issue a PR says it closes never auto-closes; today it's
+# closed by hand (AGENTS.md convention 6: "closed by hand with the PR +
+# SHA"). This workflow does that automatically on merge into the staging
+# branch (default: `dev`, overridable via the `base-branch` input, for a
+# repo that names its staging branch something else).
+#
+# Adopt from a consuming repo with a thin wrapper, e.g.
+# .github/workflows/close-linked-issues.yml:
+#
+#   name: close linked issues
+#   on:
+#     pull_request:
+#       types: [closed]
+#   jobs:
+#     close:
+#       uses: thrillmade/reporulez/.github/workflows/close-linked-issues.yml@main
+#       secrets:
+#         cross-repo-token: ${{ secrets.CROSS_REPO_ISSUE_TOKEN }}   # optional
+#
+# No `paths:` filter -- deliberate, same reasoning as
+# dependabot-target-check.yml's header comment (a path-filtered check on
+# something that could become required blocks merges forever the day it's
+# required; this one is even simpler to get right since it has no diff-
+# relevant paths at all, but the convention is stated here so nobody adds
+# one "to be safe").
+#
+# Design decisions (reporulez#71 asked for these to be stated, not left
+# implicit):
+#
+#   Cross-repo issue references (an "owner/repo#N" or full-URL reference
+#   to a DIFFERENT repo than the one the PR lives in): the default
+#   GITHUB_TOKEN this workflow runs with is scoped to the calling repo
+#   only and cannot close an issue anywhere else. Rather than silently
+#   skip those references (this document's own standing rule: "failing
+#   silently is the thing to avoid"), this workflow:
+#     - accepts an OPTIONAL `cross-repo-token` secret. If the caller wires
+#       one up (a PAT or GitHub App token with `issues:write` on the
+#       target repo(s)), cross-repo references are closed the same way
+#       same-repo ones are.
+#     - if no token is configured, every cross-repo reference found is
+#       reported in the job summary as NOT CLOSED, with the reason, and
+#       counts toward this job's failure -- so a PR that says "closes
+#       other-org/other-repo#9" produces a visibly red workflow run
+#       instead of a quiet no-op nobody notices.
+#
+#   Close failures (permission denied, issue not found, API error): loud,
+#   not swallowed. Every attempt is recorded in the job summary
+#   (Issue | Repo | Action | Result), and the job exits 1 if ANY close
+#   attempt failed for a reason other than "already closed". Since this
+#   job runs AFTER the PR has already merged, failing it blocks nothing --
+#   but it keeps the workflow run red and visible in the Actions tab
+#   rather than reporting green while quietly having closed nothing.
+#
+#   Already-closed issues are NOT a failure (idempotent: re-running this
+#   workflow, or an issue someone already closed by hand, does not turn
+#   red) and are not re-commented on, to avoid duplicate comments on
+#   repeat runs.
+
+on:
+  workflow_call:
+    inputs:
+      base-branch:
+        description: 'Only act on PRs merged into this branch.'
+        required: false
+        type: string
+        default: 'dev'
+      dry-run:
+        description: 'Report what would be closed without closing anything.'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      cross-repo-token:
+        description: 'Optional token with issues:write on any cross-repo issues referenced. Without it, cross-repo references are reported as not-closed and fail the job.'
+        required: false
+
+permissions:
+  issues: write
+
+jobs:
+  close-linked-issues:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == inputs.base-branch
+    runs-on: ubuntu-latest
+    steps:
+      # Same self-referential pin as dependabot-target-check.yml: checks
+      # out reporulez at the exact ref this workflow file was invoked at
+      # (parsed from github.workflow_ref), not a separately-maintained
+      # SHA -- the script lives in the same repo as the workflow calling
+      # it, so there is nothing to drift out of sync.
+      - name: Resolve reporulez ref from workflow_ref
+        id: ref
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_WORKFLOW_REF##*@}"
+          [[ -n "$REF" ]] || { echo "::error::could not parse a ref out of github.workflow_ref ('$GITHUB_WORKFLOW_REF')"; exit 1; }
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: thrillmade/reporulez
+          ref: ${{ steps.ref.outputs.ref }}
+          path: _reporulez
+          sparse-checkout: |
+            bin/extract-closed-issues.sh
+            bin/close-linked-issues.sh
+
+      # The actual extraction + closing logic lives in
+      # bin/close-linked-issues.sh (which itself calls
+      # bin/extract-closed-issues.sh) specifically so it has a real
+      # regression suite (tests/test-close-linked-issues.sh, run against
+      # a stubbed `gh`) instead of living only as untested workflow YAML
+      # -- this step is a thin wrapper around it.
+      - name: Extract, close, and summarize linked issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CROSS_REPO_TOKEN: ${{ secrets.cross-repo-token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          chmod +x _reporulez/bin/extract-closed-issues.sh _reporulez/bin/close-linked-issues.sh
+          printf '%s' "$PR_BODY" | _reporulez/bin/close-linked-issues.sh \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --merge-sha "${{ github.event.pull_request.merge_commit_sha }}" \
+            --base-branch "${{ inputs.base-branch }}" \
+            --summary-file "$GITHUB_STEP_SUMMARY" \
+            ${{ inputs.dry-run && '--dry-run' || '' }}
