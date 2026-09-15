@@ -20,6 +20,36 @@ FIXTURES="$SCRIPT_DIR/fixtures/dependabot"
 
 PASS=0
 FAIL=0
+STUB_DIR="$(mktemp -d)"
+trap 'rm -rf "$STUB_DIR"' EXIT
+
+# A stub `gh` for the one test case below that exercises --all mode
+# (`gh auth status` + org enumeration). Deliberately NOT a live API call:
+# this repo's real `gh` session (an authenticated dev machine) and a bare
+# CI runner (no `gh auth login` state at all -- test.yml exports no
+# GH_TOKEN for this step) hit DIFFERENT failure paths for the same "org
+# with zero repos" scenario -- one gets "examined zero repos" from a
+# successful-but-empty enumeration, the other dies earlier at "gh not
+# authenticated". Both are legitimately exit 2 (the guard the case is
+# testing -- "examines nothing must not exit 0" -- holds either way), but
+# asserting one specific message made the test depend on which
+# environment it ran in. Found for real: this exact test passed locally
+# (authenticated gh) and FAILED on GitHub Actions CI for
+# thrillmade/reporulez#73 (output: "gh not authenticated") until this
+# stub replaced the live call. The stub makes "auth succeeds, enumeration
+# returns zero repos" the ONLY path exercised, in every environment.
+cat > "$STUB_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "auth status" ]]; then
+  exit 0
+fi
+if [[ "$1" == "api" ]]; then
+  exit 0   # success, empty output -- zero repos enumerated
+fi
+echo "unexpected stub gh invocation: $*" >&2
+exit 9
+EOF
+chmod +x "$STUB_DIR/gh"
 
 # assert_case <name> <expected_exit> <grep_pattern|-> -- <cmd...>
 # Same contract as test-validate-ruleset.sh's helper: runs the command,
@@ -117,7 +147,7 @@ assert_case "no arguments at all errors (exit 2), not a silent pass" 2 \
 # guard (no local file shape can exercise it -- enumeration is a live API
 # call by design, same as bin/audit.sh's --all).
 
-assert_case "--all against an org with zero (reachable) repos errors (exit 2), not a silent pass" 2 \
+PATH="$STUB_DIR:$PATH" assert_case "--all against an org with zero (reachable) repos errors (exit 2), not a silent pass" 2 \
   "examined zero repos" \
   "$CHECK" --all "thrillmade-org-that-does-not-exist-in-this-test-namespace"
 
