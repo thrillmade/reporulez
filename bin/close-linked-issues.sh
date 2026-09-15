@@ -108,6 +108,18 @@ summary "|---|---|---|---|"
 ANY_FAILURE=0
 COMMENT_BODY="Closed by #${PR_NUMBER} (merged ${MERGE_SHA}) into \`${BASE_BRANCH}\`. Promotes to \`main\` at the next dev→main squash promotion."
 
+# Shared scratch file for close_one's state-read call below -- stdout
+# (the --jq '.state' value) and stderr (diagnostics) are captured
+# SEPARATELY through it rather than merged via 2>&1, so a stray warning
+# on stderr from a successful `gh` call can never pollute the string
+# compared against "closed" (clud-bug flagged the merged-stream version
+# on PR #74's review: a jq/gh warning on stderr could make a genuinely-
+# open issue's state fail to equal either "open" or "closed" cleanly).
+# One shared file is safe -- this script is strictly sequential, never
+# concurrent.
+STATE_STDERR="$(mktemp)"
+trap 'rm -f "$STATE_STDERR"' EXIT
+
 # close_one <repo> <number> <token> -- shared by both loops below. Prints
 # one summary row; returns 0 for clean/idempotent outcomes, 1 for a real
 # failure. `cmd && rc=0 || rc=$?` (not a bare trailing `$?` check) so a
@@ -116,9 +128,9 @@ COMMENT_BODY="Closed by #${PR_NUMBER} (merged ${MERGE_SHA}) into \`${BASE_BRANCH
 close_one() {
   local repo="$1" num="$2" token="$3"
   local state rc
-  state="$(GH_TOKEN="$token" gh api "repos/$repo/issues/$num" --jq '.state' 2>&1)" && rc=0 || rc=$?
+  state="$(GH_TOKEN="$token" gh api "repos/$repo/issues/$num" --jq '.state' 2>"$STATE_STDERR")" && rc=0 || rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    echo "error: could not read repos/$repo/issues/$num: $state" >&2
+    echo "error: could not read repos/$repo/issues/$num: $(cat "$STATE_STDERR")" >&2
     summary "| #$num | $repo | close | ✗ FAILED (could not read issue: permission denied, not found, or rate-limited) |"
     return 1
   fi

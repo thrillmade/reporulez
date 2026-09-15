@@ -123,6 +123,34 @@ GH_TOKEN=x assert_case "gh api failure (permission/not-found) fails the job, not
   "FAILED" "error:" \
   bash -c "echo 'Closes #3' | \"$CLOSE\" \"\${@}\"" _ "${COMMON_ARGS[@]}"
 
+# --- a stray stderr warning alongside a successful `gh api` call must not
+# pollute the compared state value (clud-bug PR #74 review, minor
+# finding): stdout (the --jq '.state' value) and stderr are now captured
+# SEPARATELY. Scenario chosen to actually distinguish the two
+# implementations (an earlier version of this test used an "open" issue,
+# which happened to behave the same either way and so proved nothing --
+# caught by mutation-testing the fix: reverting the stdout/stderr
+# separation to a merged 2>&1 left this repo's suite fully green,
+# 11/11, an unpinned fix). An ALREADY-CLOSED issue is the case that
+# actually differs: merge stderr noise onto a "closed" stdout value and
+# it stops comparing equal to "closed" exactly, so close_one wrongly
+# falls through and attempts to re-close an issue that's already closed.
+
+write_gh_stub '
+if [[ "$1" == "api" ]]; then
+  echo "gh: a harmless warning on stderr" >&2
+  echo "closed"
+  exit 0
+fi
+if [[ "$1" == "issue" && "$2" == "close" ]]; then
+  echo "SHOULD NOT BE CALLED: attempted to re-close an already-closed issue" >&2
+  exit 1
+fi
+'
+GH_TOKEN=x assert_case "stderr warning alongside a 'closed' state does not defeat the already-closed check" 0 \
+  "already closed" "already closed" \
+  bash -c "echo 'Closes #3' | \"$CLOSE\" \"\${@}\"" _ "${COMMON_ARGS[@]}"
+
 # --- same-repo: gh issue close failure is a real failure -------------------
 
 write_gh_stub '

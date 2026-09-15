@@ -117,18 +117,46 @@ jobs:
       # regression suite (tests/test-close-linked-issues.sh, run against
       # a stubbed `gh`) instead of living only as untested workflow YAML
       # -- this step is a thin wrapper around it.
+      # clud-bug flagged this step's PR_BODY line (env:, not run:) as
+      # shell injection on PR #74's review. Verified false as written --
+      # env: mapping values are GitHub's own documented mitigation
+      # (https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#understanding-the-risk-of-script-injections,
+      # "use an intermediate environment variable"): the expression is
+      # substituted into an ENV VAR, passed to the process via execve,
+      # never spliced into the shell SCRIPT text the way a `${{ }}`
+      # inside `run:` directly would be. Hardened anyway, for real: every
+      # OTHER `${{ }}` below WAS interpolated directly into the run:
+      # script text (repo/PR-number/merge-sha/base-branch/dry-run) --
+      # each individually low-risk (GitHub-controlled or maintainer-
+      # configured, not attacker-supplied free text), but routing all of
+      # them through env: too removes every direct-interpolation surface
+      # from this step, matching GitHub's hardening guide's blanket
+      # recommendation rather than only the one input judged highest-risk.
       - name: Extract, close, and summarize linked issues
         env:
           GH_TOKEN: ${{ github.token }}
           CROSS_REPO_TOKEN: ${{ secrets.cross-repo-token }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          BASE_BRANCH: ${{ inputs.base-branch }}
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
         run: |
           set -uo pipefail
           chmod +x _reporulez/bin/extract-closed-issues.sh _reporulez/bin/close-linked-issues.sh
+          # DRY_RUN_FLAG (last arg below) is deliberately unquoted: it's
+          # either empty (zero args, the common case) or the literal
+          # single word "--dry-run" set by this file's own env: block
+          # above, never external/attacker-controlled text. Quoting it
+          # would pass an empty-string argument when dry-run is false,
+          # which close-linked-issues.sh's parser rejects as
+          # "unrecognized argument: ".
+          # shellcheck disable=SC2086
           printf '%s' "$PR_BODY" | _reporulez/bin/close-linked-issues.sh \
-            --repo "${{ github.repository }}" \
-            --pr-number "${{ github.event.pull_request.number }}" \
-            --merge-sha "${{ github.event.pull_request.merge_commit_sha }}" \
-            --base-branch "${{ inputs.base-branch }}" \
+            --repo "$PR_REPO" \
+            --pr-number "$PR_NUMBER" \
+            --merge-sha "$MERGE_SHA" \
+            --base-branch "$BASE_BRANCH" \
             --summary-file "$GITHUB_STEP_SUMMARY" \
-            ${{ inputs.dry-run && '--dry-run' || '' }}
+            $DRY_RUN_FLAG

@@ -15,6 +15,7 @@ PR's CI run, so this file is always coherent with current `main`.
 
 ## 2026-09
 
+- **2026-09-15** — harden close-linked-issues.yml env-var indirection + fix close_one's stderr/stdout conflation (clud-bug PR #74 review) *(feat/close-linked-issues-workflow)* — [decisions-branches/feat__close-linked-issues-workflow.md](decisions-branches/feat__close-linked-issues-workflow.md)
 - **2026-09-15** — reporulez#71 ask C: reusable workflow that closes linked issues on merge into dev *(feat/close-linked-issues-workflow)* — [decisions-branches/feat__close-linked-issues-workflow.md](decisions-branches/feat__close-linked-issues-workflow.md)
 
 ## 2026-08 (5 decisions)
