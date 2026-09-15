@@ -10,6 +10,10 @@ name: test
 #   - tests/test-validate-ruleset.sh -- bin/validate-ruleset.sh's own
 #     regression guard (reporulez#68), including the case that every
 #     shipped rulesets/*.json must itself pass the validator (PR #69)
+#   - tests/test-extract-closed-issues.sh + tests/test-close-linked-issues.sh
+#     -- bin/extract-closed-issues.sh and bin/close-linked-issues.sh's
+#     regression guards (reporulez#71 ask C), the latter run against a
+#     stubbed `gh` so no real GitHub state is touched by CI
 
 on:
   pull_request:
@@ -57,3 +61,12 @@ jobs:
         # Fails CI on any regression in the validator itself, or on a shipped
         # rulesets/*.json that stops passing it.
         run: bash tests/test-validate-ruleset.sh
+
+      - name: bin/extract-closed-issues.sh regression suite
+        run: bash tests/test-extract-closed-issues.sh
+
+      - name: bin/close-linked-issues.sh regression suite
+        # reporulez#71 ask C: runs against a stubbed `gh` (built inline by
+        # the test file itself, prepended to PATH) -- no real GitHub state
+        # is read or written by this step.
+        run: bash tests/test-close-linked-issues.sh
