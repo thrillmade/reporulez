@@ -1,0 +1,20 @@
+# real-reporulez-missing-target.yml with target-branch: "dev" added --
+# the exact one-line fix (same shape as thrillmade/clud-bug#340 and
+# thrillmade/clud-bug-app#129) that would make reporulez's own live file
+# pass this check.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      thrillmade:
+        patterns:
+          - "thrillmade/*"

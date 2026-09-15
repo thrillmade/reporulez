@@ -10,6 +10,9 @@ name: test
 #   - tests/test-validate-ruleset.sh -- bin/validate-ruleset.sh's own
 #     regression guard (reporulez#68), including the case that every
 #     shipped rulesets/*.json must itself pass the validator (PR #69)
+#   - tests/test-check-dependabot-target.sh -- bin/check-dependabot-target.sh's
+#     own regression guard (reporulez#71 ask B), including the
+#     "examines nothing must not exit 0" guard
 
 on:
   pull_request:
@@ -57,3 +60,15 @@ jobs:
         # Fails CI on any regression in the validator itself, or on a shipped
         # rulesets/*.json that stops passing it.
         run: bash tests/test-validate-ruleset.sh
+
+      - name: bin/check-dependabot-target.sh regression suite
+        # reporulez#71 ask B: dependabot config is per-repo and GitHub reads
+        # it only from the default branch, so nothing org-wide enforces
+        # target-branch: "dev" without this. Fails CI on any regression in
+        # the checker itself, including the "examines nothing must not
+        # exit 0" guard (mutation-tested when this suite was built -- see
+        # the PR description for the mutation and its caught failure).
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyyaml
+          bash tests/test-check-dependabot-target.sh

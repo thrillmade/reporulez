@@ -1,0 +1,95 @@
+name: dependabot target-branch check
+
+# Reusable workflow (reporulez#71 ask B). GitHub reads .github/dependabot.yml
+# ONLY from a repo's default branch, and there is no org-level dependabot
+# setting -- so nothing org-wide stops a repo's dependabot config from
+# opening dependency-bump PRs against `main` forever. This workflow is the
+# per-repo gate: it fails when the calling repo's OWN .github/dependabot.yml
+# has any `updates` entry that doesn't target `dev` (or whatever
+# `target-branch` input is set to).
+#
+# Real, not hypothetical: this is the exact defect class fixed by hand in
+# thrillmade/clud-bug#340 and thrillmade/clud-bug-app#129, and (as of this
+# workflow shipping) still live on reporulez's own default branch and on
+# both of those PRs' unmerged base state -- see bin/check-dependabot-target.sh
+# for the script this workflow runs, and tests/test-check-dependabot-target.sh
+# for its regression suite.
+#
+# Adopt from a consuming repo with a thin wrapper, e.g.
+# .github/workflows/dependabot-target-check.yml:
+#
+#   name: dependabot target-branch check
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#   jobs:
+#     check:
+#       uses: thrillmade/reporulez/.github/workflows/dependabot-target-check.yml@main
+#
+# No `paths:` filter on the caller's `on: pull_request` above, deliberately
+# -- a path-filtered check reports as expected-but-never-reported the first
+# time it's added to a branch ruleset's required checks, and blocks every
+# merge forever (agent-skills#223's lesson, ported here since this repo
+# hits the same rulesets-can't-conditionally-require-checks constraint).
+#
+# NOT a per-PR-diff check: it fetches the CURRENT default-branch
+# .github/dependabot.yml via the GitHub API on every run, so it also
+# catches drift introduced by a PR that never touched dependabot.yml at
+# all (e.g. someone hand-edits it outside a PR, or a prior merge missed
+# it) -- the same "audit the live state, not just the diff" shape as
+# bin/audit.sh and bin/validate-ruleset.sh.
+
+on:
+  workflow_call:
+    inputs:
+      target-branch:
+        description: 'Branch every dependabot `updates` entry must target.'
+        required: false
+        type: string
+        default: 'dev'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out reporulez at the SAME ref this very workflow file was
+      # invoked at (parsed from `github.workflow_ref`, which GitHub sets to
+      # `thrillmade/reporulez/.github/workflows/dependabot-target-check.yml@<ref>`
+      # for a `workflow_call`), not a separately-maintained pin. The script
+      # this workflow runs lives in the same repo as the workflow calling
+      # it, so this is self-consistent by construction -- there is no
+      # second pin to remember to bump when reporulez changes, unlike a
+      # cross-repo call (e.g. dependabot-auto-merge.yml's pin to
+      # thrillmade/.github, which genuinely is a different repo).
+      - name: Resolve reporulez ref from workflow_ref
+        id: ref
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_WORKFLOW_REF##*@}"
+          [[ -n "$REF" ]] || { echo "::error::could not parse a ref out of github.workflow_ref ('$GITHUB_WORKFLOW_REF')"; exit 1; }
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: thrillmade/reporulez
+          ref: ${{ steps.ref.outputs.ref }}
+          path: _reporulez
+          sparse-checkout: |
+            bin/check-dependabot-target.sh
+
+      - name: Check ${{ github.repository }}'s dependabot.yml targets "${{ inputs.target-branch }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyyaml
+          chmod +x _reporulez/bin/check-dependabot-target.sh
+          _reporulez/bin/check-dependabot-target.sh \
+            --target "${{ inputs.target-branch }}" \
+            --repo "${{ github.repository }}"
