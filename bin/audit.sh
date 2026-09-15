@@ -22,6 +22,14 @@
 #                     each. Filters out archived repos. Useful as an
 #                     org-wide drift check.
 #
+# This script does NOT check the reporulez#71 org branch policy (does
+# `dev` exist, is the repo's default branch still `main`) — that check
+# lives in exactly one place, `bin/ensure-dev-branch.sh --dry-run`, so it
+# isn't duplicated (and able to drift from itself) here. Run both for a
+# full org audit:
+#   ./bin/audit.sh --all thrillmade --include-ruleset
+#   ./bin/ensure-dev-branch.sh --all thrillmade --dry-run
+#
 # Flags:
 #   --strict           Exit 1 when any drift is detected (default exit 0).
 #   --quiet            Only print drift rows (skip the ✓ matches).

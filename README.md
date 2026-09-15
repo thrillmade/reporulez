@@ -2,6 +2,12 @@
 
 Drop-in GitHub repository rulesets tuned for AI-driven development.
 
+> Ship the **org-wide `main`=production / `dev`=staging policy** (reporulez#71)? See
+> [docs/branch-policy.md](docs/branch-policy.md) for the ruling and
+> [Org-level baseline](#org-level-baseline) below for the three rulesets
+> (`org-baseline`, `org-default-protection`, `org-staging`) and `bin/ensure-dev-branch.sh`
+> that apply it.
+
 The goal: let an AI agent branch → push → open a PR → wait for checks → merge, without
 bypassing safety.
 
@@ -245,6 +251,68 @@ gh auth refresh -h github.com -s admin:org
 
 You must be an **owner** of the org. Like `apply.sh`, the script is idempotent — re-running
 updates the existing `org-baseline` ruleset instead of creating a duplicate.
+
+### The full two-tier org policy: `org-default-protection` + `org-staging`
+
+`org-baseline` alone is a structural floor, not the org's actual branch policy
+(reporulez#71: "`main` is the default branch and production, on every repo" / "`dev` is the
+staging/integration branch, on every repo"). Two more org-level variants carry that policy
+itself — apply them the same way, choosing the variant positionally:
+
+```sh
+# Production protection on ~DEFAULT_BRANCH *and* refs/heads/main explicitly:
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
+  | bash -s -- your-org org-default-protection
+
+# Staging protection on refs/heads/dev, org-wide:
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
+  | bash -s -- your-org org-staging
+```
+
+**`org-default-protection`** — linear history required, squash-only merges, 1 approving
+review, code-owner review, review-thread resolution required. Targets
+`ref_name: ["~DEFAULT_BRANCH", "refs/heads/main"]` — **both**, not `~DEFAULT_BRANCH` alone.
+See [Why the org policy never flips the default branch](#why-the-org-policy-never-flips-the-default-branch)
+below for what that second entry buys you.
+
+**`org-staging`** — targets `refs/heads/dev` only. No approval floor (reporulez#71 ruling 2:
+"agents may merge to `dev` when green after review"), all three merge methods allowed,
+dev-branch deletion blocked. Because it targets a literal ref rather than `~DEFAULT_BRANCH`,
+it is a no-op on any repo that doesn't yet have a `dev` branch — it does not create one. Use
+`bin/ensure-dev-branch.sh` to close that gap (see below).
+
+Both variants carry the same `OrganizationAdmin` + `RepositoryRole` (`write`, `admin`) +
+`skdd-steward` App bypass shape as the org's currently-live rulesets (verified via
+`gh api repos/<any-repo>/rulesets?includes_parents=true` against a repo carrying all three org
+rulesets) — **not** the narrower single-`OrganizationAdmin` bypass `org-baseline.json` ships.
+That narrower shape is `org-baseline`'s own considered choice (see the callout above); the two
+newer variants instead match production as it already runs today rather than silently
+narrowing it on next apply. If you re-run `apply-org.sh <org> org-baseline` today, note that it
+targets a *different*, already-narrower live ruleset — it does not touch these two.
+
+#### Why the org policy never flips the default branch
+
+The production rulesets key on `~DEFAULT_BRANCH`. If a repo's default branch is ever flipped
+to `dev` — by hand, by mistake, by a script that assumes "default branch" means "where work
+happens" — `~DEFAULT_BRANCH` re-resolves to `dev`, and **every production rule
+(`org-default-protection`'s 1-approval / linear-history / squash-only) now ALSO applies to
+`dev`**, stacking on top of `org-staging`'s own rules. The practical break: agents can no
+longer auto-merge to `dev`, because `org-default-protection` now demands a human approval
+there too. Meanwhile `main` — no longer the default — would have silently lost its
+`~DEFAULT_BRANCH`-keyed protection entirely, if `org-default-protection` targeted only
+`~DEFAULT_BRANCH`. The explicit `refs/heads/main` entry in `org-default-protection`'s
+`ref_name.include` is what prevents that second, silent failure: `main` stays protected no
+matter what the default branch is set to, so a flipped default fails loud (dev gets
+double-protected, agents notice immediately) instead of failing silent (main loses
+protection, nobody notices until an unreviewed push lands in production).
+
+This is a real, observed failure mode, not a hypothetical: reporulez#71's org-wide audit found
+`thrillmade/arlyn-delivery` with its default branch set to `dev`, `org-default-protection`
+consequently double-protecting `dev` there, and no ruleset-level fix available — flipping a
+repo's default branch is a repo *setting*, not a ruleset, and no ruleset can repair it. **The
+fix is a human flipping the default branch back to `main`.** No script in this repo does that
+automatically, and none should — see `docs/branch-policy.md` for the full policy and this
+incident.
 
 ## What gets configured
 
@@ -514,7 +582,7 @@ To require a human approval in this path, edit the JSON's `required_approving_re
 
 ## Out of scope (for now)
 
-- Org-level *variants* beyond `org-baseline` (the org floor exists — see [Org-level baseline](#org-level-baseline); richer org variants that mirror `clud-bug`/`skdd`/`public-guard` are not built yet)
+- Org-level *variants* that mirror the repo-level `clud-bug`/`skdd`/`public-guard` opinions (required status checks, human review) — `org-baseline`, `org-default-protection`, and `org-staging` cover the two-tier main/dev model (see [Org-level baseline](#org-level-baseline)); a required-status-checks org variant is not built yet
 - Tag protection
 - Push rulesets (file paths, file sizes, etc.)
 - Required signed commits — high friction for AI agents without signing keys

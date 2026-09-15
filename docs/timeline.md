@@ -13,6 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
+## 2026-09
+
+- **2026-09-15** — Add org-default-protection and org-staging presets, ensure-dev-branch.sh, and docs/branch-policy.md for reporulez#71's org-wide main=production/dev=staging policy *(org-branch-policy-audit)* — [decisions-branches/org-branch-policy-audit.md](decisions-branches/org-branch-policy-audit.md)
+
 ## 2026-08 (5 decisions)
 
 - **2026-08-24** — Correct two claims in this branch's own record: a misattributed citation and an undercounted mutation *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
