@@ -25,14 +25,20 @@ This project uses [logmind](https://logmind.dev). What counts as a decision, bra
 development. The installer (`bin/apply.sh`) tunes target-repo settings
 (auto-merge, squash-only, delete-on-merge) and POSTs a ruleset that requires
 PRs, blocks force pushes and default-branch deletions, enforces thread
-resolution, and (in the `copilot` variant) wires up GitHub Copilot
-auto-review. Two variants — `copilot` and `external` — plus a
-`--human-review` flag. See `README.md` for the full design.
+resolution, and layers on a review gate depending on variant. Four variants
+— `baseline` (structural floor only), `clud-bug` (adds the `clud-bug-review`
+required status check), `skdd` (adds the full clud-bug + logmind toolchain
+check set), and `public-guard` (adds a required human code-owner approval)
+— plus a `--human-review` flag. `bin/apply-org.sh` applies a fifth,
+org-level-only variant, `org-baseline`, across an entire org in one call.
+See `README.md` for the full design.
 
-This repo itself uses the `external` variant: clud-bug is the AI reviewer (now
-delivered via the `clud-bug[bot]` GitHub App installed at the thrillmade org
-— no per-repo workflow), logmind enforces decision logging, and CI gates every
-PR on `check-decisions` and `check-links` (all currently passing).
+This repo itself uses the `baseline` variant (the direct rename target of the
+old `external` variant this line used to name — see #63): clud-bug is the AI
+reviewer (now delivered via the `clud-bug[bot]` GitHub App installed at the
+thrillmade org — no per-repo workflow, so no required-check rule is needed
+here), logmind enforces decision logging, and CI gates every PR on
+`check-decisions` and `check-links` (all currently passing).
 
 ## Development Commands
 
@@ -44,11 +50,39 @@ jq . rulesets/*.json
 bash -n bin/apply.sh
 
 # Apply rulesets to a target repo (dogfood / end-to-end test)
-./bin/apply.sh <owner/repo> [copilot|external] [--human-review]
+./bin/apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] [--human-review]
+
+# Apply the org-level floor across an entire org
+./bin/apply-org.sh <org> [org-baseline]
+
+# Validate a ruleset's required fields before it is ever applied
+./bin/validate-ruleset.sh rulesets/skdd.json
+
+# The validator's own regression guard — run it before you push
+bash tests/test-validate-ruleset.sh
 ```
 
-There is no test suite. End-to-end validation is "apply against a throwaway
-repo and inspect via the GitHub UI / API."
+`tests/test-validate-ruleset.sh` covers `bin/validate-ruleset.sh` and nothing
+else. The installers are still validated end-to-end by hand: apply against a
+throwaway repo and inspect via the GitHub UI / API. No count or duration is
+quoted here on purpose — run it and read the output.
+
+## The `dev` branch
+
+reporulez follows the same convention as every other thrillmade repo: **work
+lands on `dev` first and reaches `main` in batches.** This is the
+organisation's rule, not this repo's, and adopting it here is not a local
+decision — the absence of a `dev` branch before 2026-08-24 was an omission,
+not a deliberate single-branch design.
+
+**Branch from `dev`, and open the pull request into `dev`.** The forge default
+base is `main`, so set it by hand.
+
+**Into `dev`: an independent adversarial review.** A different agent than the
+one that wrote the change — a fresh context window on the same agent is not a
+different agent.
+
+**Into `main`: a person.** An agent reports the batch ready and hands off.
 
 ## Contributor Setup
 
