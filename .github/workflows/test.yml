@@ -46,3 +46,18 @@ jobs:
           find templates -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 \
             | xargs -0 -I{} python3 -c "import sys, yaml; yaml.safe_load(open(sys.argv[1])); print(f'  {sys.argv[1]}: OK')" {}
           echo "All shipped YAML templates parse cleanly."
+
+  # Required by the org-wide "CI must pass" ruleset: a status check named
+  # exactly `ci`. Relays `test`'s result under the name the org rule requires.
+  ci:
+    name: ci
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require test to have passed
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::test did not succeed (result: ${{ needs.test.result }})"
+            exit 1
+          fi
