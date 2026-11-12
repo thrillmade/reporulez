@@ -307,7 +307,7 @@ double-protected, agents notice immediately) instead of failing silent (main los
 protection, nobody notices until an unreviewed push lands in production).
 
 This is a real, observed failure mode, not a hypothetical: reporulez#71's org-wide audit found
-`thrillmade/arlyn-delivery` with its default branch set to `dev`, `org-default-protection`
+one private repository with its default branch set to `dev`, `org-default-protection`
 consequently double-protecting `dev` there, and no ruleset-level fix available — flipping a
 repo's default branch is a repo *setting*, not a ruleset, and no ruleset can repair it. **The
 fix is a human flipping the default branch back to `main`.** No script in this repo does that

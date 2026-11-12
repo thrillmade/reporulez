@@ -52,7 +52,7 @@ unrecoverable silent gap into a recoverable loud one: dev getting over-protected
 and immediately visible; main losing protection is neither.
 
 **This is not hypothetical.** The reporulez#71 org-wide audit (2026-09-15) found
-`thrillmade/arlyn-delivery` with its default branch already set to `dev` — `dev` there was
+one private repository with its default branch already set to `dev` — `dev` there was
 carrying `org-default-protection`'s full production ruleset (1 approval, squash-only, linear
 history) in addition to `org-staging`, exactly the "loud" failure described above. `main` on
 that repo was unaffected, because of the explicit `refs/heads/main` entry.
