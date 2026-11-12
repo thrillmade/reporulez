@@ -1,0 +1,5 @@
+# `updates:` key present but an empty list. Same "nothing to check is not
+# nothing wrong" guard as no-updates-key.yml, different YAML shape (empty
+# list vs. absent key) so a mutation that only handles one shape is caught.
+version: 2
+updates: []

@@ -1,0 +1,7 @@
+# Valid YAML, but the top level is a list, not a mapping -- dependabot.yml
+# must be a mapping with `version:` and `updates:` keys. Distinct failure
+# mode from malformed.yml (which is not even valid YAML syntax).
+- this
+- is
+- a
+- list

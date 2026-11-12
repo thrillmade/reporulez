@@ -1,0 +1,14 @@
+# `bad: 2024-99-99` is well-formed YAML syntax but not a real date (month 99).
+# PyYAML's constructor raises ValueError ("month must be in 1..12") while
+# building the date scalar -- a ValueError, NOT a yaml.YAMLError and NOT a
+# syntax error -- so a checker that only catches yaml.YAMLError dies with a
+# traceback. The updates entry below is a real violation the crash must not
+# hide behind a tick.
+version: 2
+bad: 2024-99-99
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: weekly
