@@ -3,7 +3,7 @@
 Source of truth: [reporulez#71](https://github.com/thrillmade/reporulez/issues/71). This
 document is what the presets in `rulesets/org-*.json` and `bin/apply-org.sh` /
 `bin/ensure-dev-branch.sh` implement — read it before changing any of them, and update it in
-the same PR if the policy itself changes. The ruling is the CEO's; the mechanism is this repo's.
+the same PR if the policy itself changes. The ruling is the owner's; the mechanism is this repo's.
 
 ## The ruling (verbatim from reporulez#71)
 
