@@ -1,0 +1,9 @@
+# target-branch is present but wrong (points at the default branch, not
+# dev) -- distinct from the key being absent entirely. Both must fail.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
