@@ -244,9 +244,23 @@ else
   PASS=$((PASS + 1))
 fi
 
-assert_case "invalid UTF-8 bytes: exit 2, no tick" 2 \
-  "could not examine" \
+# Which refusal an invalid-UTF-8 file gets depends on the platform's YAML
+# reader: on macOS the parser crashes ("could not examine"), on Linux it
+# reports the bytes as a parse error ("could not parse"). Both are exit 2
+# with no tick, and that is the invariant; CI runs on Linux and went red
+# when this case asserted the macOS wording.
+assert_case "invalid UTF-8 bytes: exit 2, refused" 2 \
+  "could not " \
   "$CHECK" "$FIXTURES/invalid-utf8.yml"
+
+INVALID_UTF8_OUT="$("$CHECK" "$FIXTURES/invalid-utf8.yml" 2>&1 || true)"
+if grep -q '✓' <<< "$INVALID_UTF8_OUT"; then
+  echo "FAIL: invalid UTF-8 fixture printed a green tick"
+  echo "  output: $INVALID_UTF8_OUT"
+  FAIL=$((FAIL + 1))
+else
+  PASS=$((PASS + 1))
+fi
 
 # A killed interpreter: fake python3 that prints nothing and exits 137. It
 # must still answer `import yaml` (the startup probe) so the run reaches
