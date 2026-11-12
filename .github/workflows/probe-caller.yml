@@ -1,0 +1,11 @@
+# PROBE, NOT FOR MERGE. Calls probe-called.yml from this pull request's head.
+name: probe-caller
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/probe-*.yml'
+permissions:
+  contents: read
+jobs:
+  call:
+    uses: ./.github/workflows/probe-called.yml

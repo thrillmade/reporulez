@@ -1,0 +1,44 @@
+# PROBE, NOT FOR MERGE. Answers one question at runtime: inside a called
+# (reusable) workflow, do `job.workflow_repository` and `job.workflow_sha`
+# resolve, and to what, compared with the `github` context?
+name: probe-called
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print workflow identity as seen from the called workflow
+        env:
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          GITHUB_CTX_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GITHUB_CTX_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          GITHUB_CTX_SHA: ${{ github.sha }}
+          GITHUB_CTX_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "job.workflow_repository=[$JOB_WORKFLOW_REPOSITORY]"
+          echo "job.workflow_sha=[$JOB_WORKFLOW_SHA]"
+          echo "job.workflow_ref=[$JOB_WORKFLOW_REF]"
+          echo "github.workflow_ref=[$GITHUB_CTX_WORKFLOW_REF]"
+          echo "github.workflow_sha=[$GITHUB_CTX_WORKFLOW_SHA]"
+          echo "github.sha=[$GITHUB_CTX_SHA]"
+          echo "github.repository=[$GITHUB_CTX_REPOSITORY]"
+          if [ -z "$JOB_WORKFLOW_REPOSITORY" ] || [ -z "$JOB_WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository or job.workflow_sha is EMPTY in a called workflow"
+            exit 1
+          fi
+      - name: Check out the called workflow's own source with those values
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: probe-src
+      - name: Show what was checked out
+        run: |
+          git -C probe-src rev-parse HEAD
+          ls probe-src/.github/workflows | head -20
