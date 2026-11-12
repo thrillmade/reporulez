@@ -13,6 +13,10 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
+## 2026-11
+
+- **2026-11-12** — Dependabot target check, after review: a pass needs positive proof, the reusable workflow checks out its own commit, and a private name is gone *(feat/dependabot-target-check)* — [decisions-branches/feat__dependabot-target-check.md](decisions-branches/feat__dependabot-target-check.md)
+
 ## 2026-09
 
 - **2026-09-15** — fix: check_one's verdict never survived --all --quiet's subshell (clud-bug PR #73 review) *(feat/dependabot-target-check)* — [decisions-branches/feat__dependabot-target-check.md](decisions-branches/feat__dependabot-target-check.md)

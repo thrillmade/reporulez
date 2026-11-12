@@ -9,14 +9,22 @@
 # dependency-bump PRs against production forever, drifting `main` ahead of
 # `dev` -- this happened for real: clud-bug#328 was a 16-file conflict lane
 # after `main` drifted 22 commits ahead of `dev` in three weeks. Fixed by
-# hand in thrillmade/clud-bug#340 and thrillmade/clud-bug-app#129 (both
+# hand in thrillmade/clud-bug#340 and the same fix in a private sibling repository (both
 # added `target-branch: "dev"` to every `updates` entry) -- this script is
 # what would have caught it before either repo drifted, and is the
 # regression guard against it drifting again.
 #
+# WHAT THIS CHECKS, AND WHEN IT CAN CATCH A REGRESSION: it audits the
+# dependabot.yml that is on the repository's DEFAULT branch right now (the
+# only copy GitHub reads), not the diff of a pull request. So it cannot
+# block the pull request that introduces a bad config -- that PR's file is
+# not on the default branch yet. It catches the defect after the merge
+# (a push to the default branch, a scheduled run, or the next pull request
+# anywhere in the repo), and it catches drift nobody made through a PR.
+#
 # THE GUARD THAT MATTERS (reporulez#71's own words, "the recurring defect
-# class here"): a check that finds no dependabot.yml, cannot parse one, or
-# examines zero repos MUST NOT exit 0. A run that examined nothing must
+# class here"): a check that finds no dependabot.yml, cannot parse one, crashes
+# while parsing one, or examines zero repos MUST NOT exit 0. A run that examined nothing must
 # never read as a pass. This script's exit-code taxonomy exists entirely to
 # make that true -- see "Exit codes" below, and
 # tests/test-check-dependabot-target.sh's "input errors" section, which
@@ -49,7 +57,9 @@
 #         not 0 -- every entry is checked, not just whether any is right.
 #     2   couldn't even check: file/repo not found, YAML failed to parse,
 #         `updates` key present but empty/absent (nothing to check is NOT
-#         the same as nothing wrong), or a usage error. NEVER 0 -- an
+#         the same as nothing wrong), the Python checker crashed or printed
+#         no well-formed `RESULT: checked=N violations=V` line, or a usage
+#         error. NEVER 0 -- an
 #         input this script could not read is not a passing input.
 #
 #   --all <owner> mode:
@@ -62,11 +72,15 @@
 #         continues past a per-repo GET failure instead of aborting the
 #         scan. The scan itself still ran; what it found is the failure.
 #     2   the scan itself could not run: enumerating <owner>'s repos
-#         failed, or returned zero repos. Examining zero repos must not
+#         failed (including a partial listing), or returned zero repos. Examining zero repos must not
 #         exit 0 (reporulez#71) -- it must not exit 1 either, since 1 in
 #         this script means "repos were examined and found wanting";
 #         reporting a real violation for repos never looked at would be
 #         its own kind of lie. 2 says plainly: the audit did not happen.
+#
+# KNOWN LIMIT: the shell drops NUL bytes when it reads a file, so a config
+# containing NUL bytes reaches the parser with them stripped and can pass
+# here even though GitHub itself would reject the original file.
 
 set -euo pipefail
 
@@ -74,7 +88,7 @@ die() { echo "error: $*" >&2; exit 2; }
 info() { echo "==> $*" >&2; }
 
 usage() {
-  sed -n '2,36p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,44p' "$0" | sed 's/^# //; s/^#//'
 }
 
 TARGET_BRANCH="dev"
@@ -120,11 +134,13 @@ python3 -c "import yaml" >/dev/null 2>&1 \
 # for the same reason bin/validate-ruleset.sh keeps its jq program in one:
 # no bash quote-escaping bleeding into the parsing logic. Reads the YAML
 # text from stdin, the required target branch from argv[1]. Prints one
-# line per `updates` entry that is missing or wrong, then a final summary
-# line starting with "RESULT:" that the bash caller parses for the verdict
-# -- distinguishing "0 entries" (exit 2, nothing to check) from "entries
-# present and all correct" (exit 0) from "entries present, some wrong"
-# (exit 1) is the whole point of this script, so this boundary is exact.
+# line per `updates` entry that is missing or wrong, then exactly one
+# summary line "RESULT: checked=<N> violations=<V>". Its documented exit
+# codes are 0 (RESULT line printed) and 2 (PARSE_ERROR line printed);
+# anything else -- a traceback, a killed interpreter, a missing RESULT
+# line -- is a crash, and the bash caller treats a crash as "could not
+# examine", never as clean. A pass needs positive proof, so the shell
+# accepts a clean verdict only from a well-formed RESULT line.
 PY_PROGRAM="$(mktemp)"
 trap 'rm -f "$PY_PROGRAM"' EXIT
 
@@ -139,7 +155,7 @@ except yaml.YAMLError as e:
     sys.exit(2)
 
 if doc is None:
-    print("RESULT: no-updates")
+    print("RESULT: checked=0 violations=0")
     sys.exit(0)
 if not isinstance(doc, dict):
     print("PARSE_ERROR: top-level YAML is not a mapping")
@@ -152,7 +168,7 @@ if not updates:
     # dependabot.yml with zero updates entries is itself suspicious for a
     # file that exists at all, and reporulez#71's own guard ("examines
     # nothing must not read as a pass") applies at this granularity too.
-    print("RESULT: no-updates")
+    print("RESULT: checked=0 violations=0")
     sys.exit(0)
 if not isinstance(updates, list):
     print("PARSE_ERROR: 'updates' key is not a list")
@@ -184,7 +200,8 @@ PYEOF
 #   0  clean       -- parsed, >=1 entries, all correct
 #   1  violation   -- parsed, >=1 entries, >=1 wrong or missing
 #   2  no-updates  -- parsed, but zero `updates` entries (nothing to check)
-#   3  parse-error -- YAML did not parse, or wasn't a mapping/list where expected
+#   3  could-not-examine -- YAML did not parse, wasn't a mapping/list where
+#      expected, or the Python side crashed / printed no valid result line
 #
 # NOT a global variable set from inside the function -- an earlier version
 # used one (CHECK_VERDICT) on the reasoning that a numeric code "would
@@ -206,19 +223,46 @@ PYEOF
 # with more than one repo and so never caught this.
 check_one() {
   local yaml_text="$1" label="$2"
-  local output rc
+  local output rc errfile
+  errfile="$(mktemp)"
   # `cmd && rc=0 || rc=$?` is the standard idiom for capturing a command's
   # real exit status under `set -e` without the nonzero case tripping
   # errexit before `rc=$?` runs -- exit 2 (parse error) is an EXPECTED
-  # outcome here, not a bug to abort on.
-  output="$(printf '%s' "$yaml_text" | python3 "$PY_PROGRAM" "$TARGET_BRANCH" 2>&1)" && rc=0 || rc=$?
+  # outcome here, not a bug to abort on. stderr goes to its own file so a
+  # traceback can never be mistaken for a finding (or forge a RESULT line).
+  output="$(printf '%s' "$yaml_text" | python3 "$PY_PROGRAM" "$TARGET_BRANCH" 2>"$errfile")" && rc=0 || rc=$?
+  local errtext
+  errtext="$(head -c 400 "$errfile" | tail -n 3 | tr '\n' ' ')"
+  rm -f "$errfile"
 
-  if [[ "$rc" -eq 2 ]] || grep -q '^PARSE_ERROR:' <<< "$output"; then
+  if [[ "$rc" -eq 2 ]] && grep -q '^PARSE_ERROR:' <<< "$output"; then
     echo "✗ $label: could not parse -- $(grep '^PARSE_ERROR:' <<< "$output" | head -1)"
     return 3
   fi
 
-  if grep -q '^RESULT: no-updates$' <<< "$output"; then
+  # Positive proof or nothing: exit code 0 and exactly one well-formed
+  # RESULT line, with a violation count that matches the VIOLATION lines
+  # actually printed. A crash (any other exit code, a traceback, a killed
+  # interpreter, unparseable output) is "could not examine" -- exit 2 at
+  # the top level, never a tick.
+  local nresult nviol_lines checked violations
+  nresult="$(grep -c '^RESULT: ' <<< "$output" || true)"
+  nviol_lines="$(grep -c '^VIOLATION: ' <<< "$output" || true)"
+  if [[ "$rc" -ne 0 || "$nresult" -ne 1 ]] \
+     || ! grep -qE '^RESULT: checked=[0-9]+ violations=[0-9]+$' <<< "$output"; then
+    echo "✗ $label: could not examine -- checker crashed or produced no result line (exit $rc) ${errtext}"
+    return 3
+  fi
+  checked="$(grep -E '^RESULT: ' <<< "$output" | sed -E 's/^RESULT: checked=([0-9]+) violations=([0-9]+)$/\1/')"
+  violations="$(grep -E '^RESULT: ' <<< "$output" | sed -E 's/^RESULT: checked=([0-9]+) violations=([0-9]+)$/\2/')"
+  if [[ "$violations" -gt "$checked" || "$violations" -ne "$nviol_lines" ]]; then
+    echo "✗ $label: could not examine -- result line (checked=$checked violations=$violations) disagrees with the $nviol_lines violation line(s) printed"
+    return 3
+  fi
+
+  # Nothing to check is not the same as nothing wrong (the existing rule
+  # for a legitimately empty or absent `updates` list): exit 2.
+  if [[ "$checked" -eq 0 ]]; then
     echo "✗ $label: dependabot.yml has no 'updates' entries -- nothing to check"
     return 2
   fi
@@ -227,8 +271,6 @@ check_one() {
     [[ "$line" == VIOLATION:* ]] && echo "✗ $label: ${line#VIOLATION: }"
   done <<< "$output"
 
-  local violations
-  violations="$(grep -oE 'violations=[0-9]+' <<< "$output" | grep -oE '[0-9]+' || echo 0)"
   if [[ "$violations" -eq 0 ]]; then
     echo "✓ $label: all updates entries target \"$TARGET_BRANCH\""
     return 0
@@ -306,10 +348,20 @@ case "$MODE" in
 
     info "Enumerating non-archived repos under $MODE_ARG"
     REPOS=()
+    # Capture the listing before reading it: `|| true` inside a process
+    # substitution swallowed a failed or partial listing, so half an org
+    # read as a clean audit of all of it. A failed listing is "could not
+    # examine" (exit 2), even if some pages arrived first.
+    LIST_ERR="$(mktemp)"
+    LISTING="$(gh api --paginate "orgs/$MODE_ARG/repos?per_page=100" \
+              --jq '.[] | select(.archived == false) | .full_name' 2>"$LIST_ERR")" && LIST_RC=0 || LIST_RC=$?
+    rm -f "$LIST_ERR"
+    if [[ "$LIST_RC" -ne 0 ]]; then
+      die "could not examine '$MODE_ARG': listing its repositories failed (gh exit $LIST_RC) -- a partial listing is not a clean audit, it is a failed one"
+    fi
     while read -r REPO; do
-      REPOS+=("$REPO")
-    done < <(gh api --paginate "orgs/$MODE_ARG/repos?per_page=100" \
-              --jq '.[] | select(.archived == false) | .full_name' 2>/dev/null || true)
+      [[ -n "$REPO" ]] && REPOS+=("$REPO")
+    done <<< "$LISTING"
 
     # The guard reporulez#71 exists for: enumeration failing outright and
     # enumeration succeeding-but-empty must both land here, not at exit 0.

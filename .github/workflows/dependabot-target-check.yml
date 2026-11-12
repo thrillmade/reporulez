@@ -4,14 +4,14 @@ name: dependabot target-branch check
 # ONLY from a repo's default branch, and there is no org-level dependabot
 # setting -- so nothing org-wide stops a repo's dependabot config from
 # opening dependency-bump PRs against `main` forever. This workflow is the
-# per-repo gate: it fails when the calling repo's OWN .github/dependabot.yml
+# per-repo check: it fails when the calling repo's OWN default-branch .github/dependabot.yml
 # has any `updates` entry that doesn't target `dev` (or whatever
 # `target-branch` input is set to).
 #
 # Real, not hypothetical: this is the exact defect class fixed by hand in
-# thrillmade/clud-bug#340 and thrillmade/clud-bug-app#129, and (as of this
-# workflow shipping) still live on reporulez's own default branch and on
-# both of those PRs' unmerged base state -- see bin/check-dependabot-target.sh
+# thrillmade/clud-bug#340 and the same fix in a private sibling repository,
+# and (as of this workflow shipping) still live on reporulez's own default
+# branch and on both of those PRs' unmerged base state -- see bin/check-dependabot-target.sh
 # for the script this workflow runs, and tests/test-check-dependabot-target.sh
 # for its regression suite.
 #
@@ -33,12 +33,14 @@ name: dependabot target-branch check
 # merge forever (agent-skills#223's lesson, ported here since this repo
 # hits the same rulesets-can't-conditionally-require-checks constraint).
 #
-# NOT a per-PR-diff check: it fetches the CURRENT default-branch
-# .github/dependabot.yml via the GitHub API on every run, so it also
-# catches drift introduced by a PR that never touched dependabot.yml at
-# all (e.g. someone hand-edits it outside a PR, or a prior merge missed
-# it) -- the same "audit the live state, not just the diff" shape as
-# bin/audit.sh and bin/validate-ruleset.sh.
+# NOT a per-PR-diff check, and it cannot block the PR that introduces the
+# defect: it fetches the CURRENT default-branch .github/dependabot.yml via
+# the GitHub API (the only copy GitHub reads), so a bad config in a PR is
+# invisible until it has merged. It catches the defect on the next run
+# after that (a push to the default branch, or any later PR), and it also
+# catches drift introduced outside a PR or by a PR that never touched
+# dependabot.yml -- the same "audit the live state, not just the diff"
+# shape as bin/audit.sh and bin/validate-ruleset.sh.
 
 on:
   workflow_call:
@@ -56,40 +58,50 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      # Checks out reporulez at the SAME ref this very workflow file was
-      # invoked at (parsed from `github.workflow_ref`, which GitHub sets to
-      # `thrillmade/reporulez/.github/workflows/dependabot-target-check.yml@<ref>`
-      # for a `workflow_call`), not a separately-maintained pin. The script
-      # this workflow runs lives in the same repo as the workflow calling
-      # it, so this is self-consistent by construction -- there is no
-      # second pin to remember to bump when reporulez changes, unlike a
-      # cross-repo call (e.g. dependabot-auto-merge.yml's pin to
-      # thrillmade/.github, which genuinely is a different repo).
-      - name: Resolve reporulez ref from workflow_ref
-        id: ref
+      # Checks out this workflow file's OWN source. Inside a called
+      # workflow the `github` context belongs to the CALLER (so
+      # `github.workflow_ref` is the caller's workflow and, on a caller's
+      # pull request, a refs/pull/N/merge ref that does not exist in this
+      # repository -- and a ref that could be an unreviewed PR's). The
+      # `job` context is the one that identifies the file defining the
+      # current job: `job.workflow_repository` and `job.workflow_sha` are
+      # GitHub's documented way for a reusable workflow to check out its
+      # own repository at the exact commit it was called at, so there is no
+      # second pin to bump and nothing the caller controls. The guard step
+      # before it fails closed: an empty value would make checkout silently
+      # use the CALLER's repository and default ref instead.
+      - name: Require the workflow's own repository and commit
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
-          REF="${GITHUB_WORKFLOW_REF##*@}"
-          [[ -n "$REF" ]] || { echo "::error::could not parse a ref out of github.workflow_ref ('$GITHUB_WORKFLOW_REF')"; exit 1; }
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+          if [ -z "$WORKFLOW_REPOSITORY" ]; then
+            echo "::error::job.workflow_repository is empty; refusing to check out the caller's repository"
+            exit 1
+          fi
+          if [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_sha is empty; refusing to check out the caller's default ref"
+            exit 1
+          fi
 
       - uses: actions/checkout@v7
         with:
-          repository: thrillmade/reporulez
-          ref: ${{ steps.ref.outputs.ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: _reporulez
           sparse-checkout: |
             bin/check-dependabot-target.sh
 
-      - name: Check ${{ github.repository }}'s dependabot.yml targets "${{ inputs.target-branch }}"
+      - name: Check ${{ github.repository }}'s dependabot.yml targets the configured branch
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+          TARGET_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           python3 -m pip install --quiet pyyaml
           chmod +x _reporulez/bin/check-dependabot-target.sh
           _reporulez/bin/check-dependabot-target.sh \
-            --target "${{ inputs.target-branch }}" \
-            --repo "${{ github.repository }}"
+            --target "$TARGET_BRANCH" \
+            --repo "$TARGET_REPO"
