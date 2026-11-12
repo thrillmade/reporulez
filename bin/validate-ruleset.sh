@@ -71,7 +71,11 @@
 #     a bypass held by repository administrators ... an incident fix cannot
 #     wait for one." A ruleset with an empty bypass_actors blocks its own
 #     repair. Checked unconditionally, for every ruleset this script is
-#     pointed at.
+#     pointed at. The admin entry (RepositoryRole id=5 or OrganizationAdmin)
+#     must be in bypass_mode `always` OR `pull_request`: `pull_request` still
+#     lets an admin get past the rule through a pull request, so it is not a
+#     lock-out, and the org's live `org-staging` ruleset uses it. `exempt`, or
+#     any other mode, does not count.
 #
 #   bypass-defeats-deletion-restriction (WARNING; not a SPEC-2 citation —
 #     this repo's own rule) written after a live incident on 2026-08-14: an
@@ -229,7 +233,7 @@ trap 'rm -f "$JQ_PROGRAM"' EXIT
 cat > "$JQ_PROGRAM" <<'JQ_PROGRAM'
 def admin_bypass_present:
   (.bypass_actors // []) as $b
-  | any($b[]; .bypass_mode == "always" and (
+  | any($b[]; (.bypass_mode == "always" or .bypass_mode == "pull_request") and (
         (.actor_type == "RepositoryRole" and .actor_id == 5) or
         (.actor_type == "OrganizationAdmin")
       ));
@@ -261,7 +265,7 @@ def role_bypass_present(want_type; want_id):
   ( if admin_bypass_present then empty
     else
       { rule: "admin-bypass-required", severity: "error",
-        message: "bypass_actors carries no repository-administrator bypass (RepositoryRole actor_id=5 \"admin\", or OrganizationAdmin, bypass_mode=\"always\") -- SPEC section 6.6: the ruleset MUST carry a bypass held by repository administrators, because the first thing a broken gate blocks is the change that would fix it." }
+        message: "bypass_actors carries no repository-administrator bypass (RepositoryRole actor_id=5 \"admin\", or OrganizationAdmin, bypass_mode=\"always\" or \"pull_request\") -- SPEC section 6.6: the ruleset MUST carry a bypass held by repository administrators, because the first thing a broken gate blocks is the change that would fix it." }
     end
   ),
 

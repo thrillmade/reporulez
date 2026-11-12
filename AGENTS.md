@@ -29,8 +29,9 @@ resolution, and layers on a review gate depending on variant. Four variants
 — `baseline` (structural floor only), `clud-bug` (adds the `clud-bug-review`
 required status check), `skdd` (adds the full clud-bug + logmind toolchain
 check set), and `public-guard` (adds a required human code-owner approval)
-— plus a `--human-review` flag. `bin/apply-org.sh` applies a fifth,
-org-level-only variant, `org-baseline`, across an entire org in one call.
+— plus a `--human-review` flag. `bin/apply-org.sh` compares the org-level
+presets (`rulesets/org-*.json`) with the live org rulesets, and applies one
+only with `--apply`.
 See `README.md` for the full design.
 
 This repo itself uses the `baseline` variant (the direct rename target of the
@@ -52,18 +53,23 @@ bash -n bin/apply.sh
 # Apply rulesets to a target repo (dogfood / end-to-end test)
 ./bin/apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] [--human-review]
 
-# Apply the org-level floor across an entire org
-./bin/apply-org.sh <org> [org-baseline]
+# Compare an org-level preset with the live org (dry run); --apply writes it
+./bin/apply-org.sh <org> [org-baseline|org-default-protection|org-staging|org-ci-must-pass] [--apply]
 
 # Validate a ruleset's required fields before it is ever applied
 ./bin/validate-ruleset.sh rulesets/skdd.json
 
 # The validator's own regression guard — run it before you push
 bash tests/test-validate-ruleset.sh
+
+# The org scripts' write paths, against a fake gh — run it before you push
+bash tests/test-org-scripts.sh
 ```
 
-`tests/test-validate-ruleset.sh` covers `bin/validate-ruleset.sh` and nothing
-else. The installers are still validated end-to-end by hand: apply against a
+`tests/test-validate-ruleset.sh` covers `bin/validate-ruleset.sh`.
+`tests/test-org-scripts.sh` covers `bin/apply-org.sh`, `bin/ensure-dev-branch.sh`
+and `bin/audit.sh`'s failed-read handling, with a fake `gh` that records every
+call. `bin/apply.sh` is still validated end-to-end by hand: apply against a
 throwaway repo and inspect via the GitHub UI / API. No count or duration is
 quoted here on purpose — run it and read the output.
 

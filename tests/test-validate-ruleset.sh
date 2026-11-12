@@ -80,9 +80,10 @@ for f in "$REPO_ROOT"/rulesets/*.json; do
     "$VALIDATOR" "$f"
 done
 
-# org-baseline.json specifically ships OrganizationAdmin (not RepositoryRole
-# admin) as its bypass, and does so ON PURPOSE (reporulez PR #69 panel, pass
-# 2): it is the org-WIDE floor apply-org.sh advertises as protecting "EVERY
+# org-baseline.json carries OrganizationAdmin first on its bypass list (it
+# also carries RepositoryRole entries, as the live ruleset does), and keeps
+# OrganizationAdmin ON PURPOSE (reporulez PR #69 panel, pass 2): it is the
+# org-WIDE floor apply-org.sh advertises as protecting "EVERY
 # repo in the org... including repos created in the future," and
 # OrganizationAdmin is the only bypass GitHub documents as PROVABLY covering
 # every org owner on every repo, present and future, unconditionally.
@@ -139,6 +140,27 @@ assert_case "empty bypass_actors is flagged" 1 \
 assert_case "omitted bypass_actors key is flagged (not a jq crash)" 1 \
   "[admin-bypass-required]" \
   "$VALIDATOR" "$FIXTURES/no-bypass-actors-key.json"
+
+# An admin bypass in `pull_request` mode counts: the admin still gets past the
+# rule through a pull request, so there is no lock-out. The org's live
+# `org-staging` ruleset is this shape. Any other mode (`exempt`) does not.
+assert_case "admin bypass in pull_request mode satisfies admin-bypass-required" 0 \
+  "is valid" \
+  "$VALIDATOR" "$FIXTURES/admin-bypass-pull-request-mode.json"
+
+assert_case "admin bypass in exempt mode does not satisfy admin-bypass-required" 1 \
+  "[admin-bypass-required]" \
+  "$VALIDATOR" "$FIXTURES/admin-bypass-exempt-mode.json"
+
+# A pull_request-mode OrganizationAdmin cannot delete past a deletion rule, so
+# the deletion advisory must stay quiet on it.
+PR_MODE_OUTPUT="$("$VALIDATOR" "$FIXTURES/admin-bypass-pull-request-mode.json" 2>&1)"
+if grep -qF "[bypass-defeats-deletion-restriction]" <<< "$PR_MODE_OUTPUT"; then
+  echo "FAIL: bypass-defeats-deletion-restriction fired on a pull_request-mode OrganizationAdmin bypass"
+  FAIL=$((FAIL + 1))
+else
+  PASS=$((PASS + 1))
+fi
 
 # --- bypass-defeats-deletion-restriction (this repo's own rule, WARNING) -
 #

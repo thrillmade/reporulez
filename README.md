@@ -4,9 +4,8 @@ Drop-in GitHub repository rulesets tuned for AI-driven development.
 
 > Ship the **org-wide `main`=production / `dev`=staging policy** (reporulez#71)? See
 > [docs/branch-policy.md](docs/branch-policy.md) for the ruling and
-> [Org-level baseline](#org-level-baseline) below for the three rulesets
-> (`org-baseline`, `org-default-protection`, `org-staging`) and `bin/ensure-dev-branch.sh`
-> that apply it.
+> [Org-level rulesets](#org-level-rulesets) below for the org rulesets and
+> `bin/ensure-dev-branch.sh` that apply it.
 
 The goal: let an AI agent branch → push → open a PR → wait for checks → merge, without
 bypassing safety.
@@ -190,121 +189,109 @@ doesn't excuse anyone below admin-level — it just also excuses every org owner
 which is worth knowing, not worth blocking. See [Validating a ruleset before it applies]
 (#validating-a-ruleset-before-it-applies) for the full reasoning.
 
-## Org-level baseline
+## Org-level rulesets
 
-Everything above is **repo-level** — one `apply.sh` run per repository. To protect a
-whole organization in one command, apply the **org-level baseline** instead:
+Everything above is **repo-level** — one `apply.sh` run per repository. The org itself runs
+five **organization-level** rulesets, which cover every repository in the org, including ones
+created later. Four have a preset under `rulesets/` that `bin/apply-org.sh` compares with, and
+can apply to, the live org:
+
+| Ruleset (preset) | Targets | What it does |
+|---|---|---|
+| `org-baseline` (`org-baseline.json`) | `~DEFAULT_BRANCH`, `refs/heads/main` | PR required, force-push blocked, deletion blocked. Merge, squash and rebase allowed. |
+| `org-default-protection` (`org-default-protection.json`) | `~DEFAULT_BRANCH`, `refs/heads/main` | Production: 1 approving review, code-owner review, thread resolution, stale reviews dismissed on push, squash-only, linear history, force-push and deletion blocked. |
+| `org-staging` (`org-staging.json`) | `refs/heads/dev` | PR required with no approval floor, any merge method, deletion blocked. Force-push is not blocked. |
+| `CI must pass` (`org-ci-must-pass.json`) | `~DEFAULT_BRANCH`, `refs/heads/dev` | A status check named exactly `ci` must pass. |
+| `no-delete-dev-main` (no preset) | `refs/heads/dev`, `refs/heads/main` | Deletion blocked, with no bypass at all. |
+
+`no-delete-dev-main` has no preset because it carries no bypass actor, and
+`bin/validate-ruleset.sh`'s `admin-bypass-required` check refuses a ruleset with none. It is
+kept by hand in the org settings.
+
+**Who can get past these rules.** The production-side rulesets (`org-baseline`,
+`org-default-protection`) list org owners, the repository write and admin roles, and one
+GitHub App as bypass actors in `always` mode: they can push or merge past the rule directly.
+`org-staging` lists the same actors in `pull_request` mode: they can merge a pull request past
+its requirements, but cannot push straight to `dev`. `CI must pass` lets org owners bypass it,
+always. So not every merge to `main` needs a human approval: an actor on a bypass list can
+merge without one. Each preset's `bypass_actors` is the exact list.
+
+### `bin/apply-org.sh`: dry run by default
 
 ```sh
-# Protect the default branch of EVERY repo in the org (incl. future repos):
-curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
-  | bash -s -- your-org
+./bin/apply-org.sh your-org org-staging            # dry run: print the difference, write nothing
+./bin/apply-org.sh your-org org-staging --apply    # replace (or create) the live ruleset
 ```
 
-`bin/apply-org.sh <org> [org-baseline]` creates (or idempotently updates) a single
-**org-level ruleset** named `org-baseline` via `POST`/`PUT orgs/<org>/rulesets`. It targets
-the default branch of **every repository in the org via `repository_name: ~ALL`** — including
-repos created *after* you run it, so new repos are protected the moment they exist without a
-per-repo follow-up.
+Variants: `org-baseline` (the default), `org-default-protection`, `org-staging`,
+`org-ci-must-pass`. Without `--apply` the script makes no write call: it reads the live org
+ruleset with the preset's name, normalises both sides the same way and prints the difference,
+or `no difference`. Writing — a `PUT` to replace the live ruleset, or a `POST` when none of that
+name exists — needs `--apply`. Even then it refuses, naming the reason, when:
 
-**What it enforces (org-wide floor):** PRs required (no direct default-branch pushes), force
-pushes blocked, default-branch deletion blocked. An **`OrganizationAdmin`** bypass
-(`bypass_mode: always`) is baked in so any org owner can unstick an edge case on any repo the
-floor covers — including a repo created *after* this ran, which by definition has no per-repo
-bypass configured yet. It is deliberately minimal — it omits the linear-history / squash-only /
-thread-resolution opinions the per-repo variants carry, so it never breaks a repo that
-legitimately wants merge commits. Tighten individual repos on top of it with `bin/apply.sh`.
+- more than one live ruleset has that name;
+- the live read failed (a failed read is never treated as "nothing is live");
+- the preset would remove a live bypass actor, change a bypass mode from `pull_request` to
+  `always`, remove a ref target, or remove a rule — unless `--allow-loosening` is also given.
 
-> **Why `OrganizationAdmin` and not `RepositoryRole` `admin`, given this ruleset carries a
-> `deletion` rule:** `bin/validate-ruleset.sh`'s `bypass-defeats-deletion-restriction` check
-> flags this combination, but only as a WARNING — it does not block applying this ruleset, and
-> should not: deleting a branch requires only write access, not admin (see [Validating a ruleset
-> before it applies](#validating-a-ruleset-before-it-applies)), so this bypass does not excuse
-> anyone below admin-level; every real Write-/Maintain-role holder stays restricted. A prior
-> version of this ruleset swapped to `RepositoryRole` `admin` (id=5) specifically to silence that
-> check when it was still an ERROR — that traded a bypass GitHub documents as **provably
-> complete** (every org owner has admin access to every repo the org owns, unconditionally) for
-> one whose completeness this repo's own validator script calls "an ASSUMPTION, not a citation"
-> (does ruleset bypass matching use a user's *assigned* repo role, or their *effective*
-> permission — GitHub does not document which). For an org-wide floor that must hold on a repo
-> nobody has configured a `RepositoryRole` grant on yet — precisely the "repos created in the
-> future" case this script exists for — the unproven bypass is the wrong one to ship as the
-> default, so this reverted back to `OrganizationAdmin` once the check stopped hard-blocking it.
-> If you want a *narrower*, repo-scoped bypass instead (accepting that an org owner with no
-> explicit Admin role on a given repo won't be able to unstick an edge case there through this
-> org-wide floor alone), swap the bypass entry to `RepositoryRole` `admin` (id=5) yourself.
+Exit codes: `0` no difference or applied, `1` a difference exists (dry run), `2` refused or
+failed. The presets are captured from the live org rulesets, so a dry run against the org
+today should print `no difference`. One part could not be checked from a repository-level read:
+an org ruleset's repository condition. The presets say `repository_name: ~ALL`, and every
+repository in the org carries all five rulesets today; the first dry run by an org owner shows
+whether live says the same.
 
 **It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
-ruleset that targets a branch, and a write must satisfy **all** of them. So the org floor and
-any per-repo `reporulez-default` ruleset stack: the repo ruleset can only add restrictions on
-top of the org floor, never relax it. Running `apply-org.sh` does not touch, replace, or
-weaken rulesets applied by `apply.sh`. (Unlike `apply.sh`, `apply-org.sh` also does **not**
-PATCH per-repo settings like auto-merge / squash-only / delete-on-merge — those are
-repo-scoped with no org-level equivalent; keep using `apply.sh` per repo for them.)
+ruleset that targets a branch, and a write must satisfy **all** of them. `apply-org.sh` does not
+touch rulesets applied by `apply.sh`, and does not PATCH per-repo settings like auto-merge /
+squash-only / delete-on-merge — keep using `apply.sh` per repo for those.
 
-**Requires the `admin:org` scope.** Reading and writing org rulesets needs it — without it
-`gh api orgs/<org>/rulesets` returns `403`, and the script fails fast with:
+**Requires the `admin:org` scope**, even for a dry run — reading org rulesets needs it:
 
 ```sh
 gh auth refresh -h github.com -s admin:org
 ```
 
-You must be an **owner** of the org. Like `apply.sh`, the script is idempotent — re-running
-updates the existing `org-baseline` ruleset instead of creating a duplicate.
+> **Why `OrganizationAdmin` is on every bypass list, given most of these rulesets carry a
+> `deletion` rule:** `bin/validate-ruleset.sh`'s `bypass-defeats-deletion-restriction` check
+> flags an `OrganizationAdmin` always-bypass on a deletion rule, but only as a WARNING.
+> Deleting a branch requires only write access, not admin (see [Validating a ruleset before it
+> applies](#validating-a-ruleset-before-it-applies)), so this bypass does not excuse anyone below
+> admin-level. `OrganizationAdmin` is the one bypass GitHub documents as covering every org
+> owner on every repo, present and future, which is what a ruleset that must hold on a repo
+> nobody has configured yet needs.
 
-### The full two-tier org policy: `org-default-protection` + `org-staging`
+### `bin/ensure-dev-branch.sh`: dry run by default
 
-`org-baseline` alone is a structural floor, not the org's actual branch policy
-(reporulez#71: "`main` is the default branch and production, on every repo" / "`dev` is the
-staging/integration branch, on every repo"). Two more org-level variants carry that policy
-itself — apply them the same way, choosing the variant positionally:
+`org-staging` targets the literal ref `refs/heads/dev`, so it protects nothing on a repo that
+has no `dev` branch. `bin/ensure-dev-branch.sh` closes that gap:
 
 ```sh
-# Production protection on ~DEFAULT_BRANCH *and* refs/heads/main explicitly:
-curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
-  | bash -s -- your-org org-default-protection
-
-# Staging protection on refs/heads/dev, org-wide:
-curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply-org.sh \
-  | bash -s -- your-org org-staging
+./bin/ensure-dev-branch.sh --all your-org            # dry run: report what would be created
+./bin/ensure-dev-branch.sh --all your-org --apply    # create dev where it is missing
 ```
 
-**`org-default-protection`** — linear history required, squash-only merges, 1 approving
-review, code-owner review, review-thread resolution required. Targets
-`ref_name: ["~DEFAULT_BRANCH", "refs/heads/main"]` — **both**, not `~DEFAULT_BRANCH` alone.
-See [Why the org policy never flips the default branch](#why-the-org-policy-never-flips-the-default-branch)
-below for what that second entry buys you.
-
-**`org-staging`** — targets `refs/heads/dev` only. No approval floor (reporulez#71 ruling 2:
-"agents may merge to `dev` when green after review"), all three merge methods allowed,
-dev-branch deletion blocked. Because it targets a literal ref rather than `~DEFAULT_BRANCH`,
-it is a no-op on any repo that doesn't yet have a `dev` branch — it does not create one. Use
-`bin/ensure-dev-branch.sh` to close that gap (see below).
-
-Both variants carry the same `OrganizationAdmin` + `RepositoryRole` (`write`, `admin`) +
-`skdd-steward` App bypass shape as the org's currently-live rulesets (verified via
-`gh api repos/<any-repo>/rulesets?includes_parents=true` against a repo carrying all three org
-rulesets) — **not** the narrower single-`OrganizationAdmin` bypass `org-baseline.json` ships.
-That narrower shape is `org-baseline`'s own considered choice (see the callout above); the two
-newer variants instead match production as it already runs today rather than silently
-narrowing it on next apply. If you re-run `apply-org.sh <org> org-baseline` today, note that it
-targets a *different*, already-narrower live ruleset — it does not touch these two.
+Without `--apply` nothing is written. A missing `dev` is a `404` on `branches/dev`; any other
+failed read is reported as "could not read" and never treated as missing. Archived repos are
+skipped, and forks unless `--include-forks`. With `--apply` it creates `dev` at the default
+branch's current HEAD; it never changes a default branch, never touches an existing `dev`, and
+never deletes. It prints five counts — created, already-present, would-create, skipped, failed —
+and exits `2` when any repo failed or could not be read; `--strict` also exits `1` when a repo
+still lacks `dev` or has a default branch other than `main`.
 
 #### Why the org policy never flips the default branch
 
 The production rulesets key on `~DEFAULT_BRANCH`. If a repo's default branch is ever flipped
 to `dev` — by hand, by mistake, by a script that assumes "default branch" means "where work
 happens" — `~DEFAULT_BRANCH` re-resolves to `dev`, and **every production rule
-(`org-default-protection`'s 1-approval / linear-history / squash-only) now ALSO applies to
-`dev`**, stacking on top of `org-staging`'s own rules. The practical break: agents can no
-longer auto-merge to `dev`, because `org-default-protection` now demands a human approval
-there too. Meanwhile `main` — no longer the default — would have silently lost its
-`~DEFAULT_BRANCH`-keyed protection entirely, if `org-default-protection` targeted only
-`~DEFAULT_BRANCH`. The explicit `refs/heads/main` entry in `org-default-protection`'s
-`ref_name.include` is what prevents that second, silent failure: `main` stays protected no
-matter what the default branch is set to, so a flipped default fails loud (dev gets
-double-protected, agents notice immediately) instead of failing silent (main loses
-protection, nobody notices until an unreviewed push lands in production).
+(`org-default-protection`'s approval / code-owner / linear-history / squash-only) now ALSO
+applies to `dev`**, stacking on top of `org-staging`'s own rules. The practical break: a merge
+to `dev` now needs an approving review unless the merging actor holds an always-bypass on
+`org-default-protection`. Meanwhile `main` — no longer the default — would have silently lost
+its `~DEFAULT_BRANCH`-keyed protection entirely, if the production rulesets targeted only
+`~DEFAULT_BRANCH`. The explicit `refs/heads/main` entry in their `ref_name.include` is what
+prevents that second, silent failure: `main` stays protected no matter what the default branch
+is set to, so a flipped default fails loud instead of failing silent.
 
 This is a real, observed failure mode, not a hypothetical: reporulez#71's org-wide audit found
 one private repository with its default branch set to `dev`, `org-default-protection`
@@ -452,8 +439,10 @@ What it checks:
   unpinned check is forgeable by any token with `statuses:write`.
 - **`admin-bypass-required`** (ERROR) — `bypass_actors` must carry a bypass
   a repository administrator can actually use (`RepositoryRole` `admin`
-  id=5, or `OrganizationAdmin`). A ruleset with no bypass at all blocks
-  its own repair.
+  id=5, or `OrganizationAdmin`), in `bypass_mode` `always` or
+  `pull_request`. `pull_request` still lets the admin get past the rule
+  through a pull request, so it is not a lock-out; any other mode does not
+  count. A ruleset with no bypass at all blocks its own repair.
 - **`bypass-defeats-deletion-restriction`** (WARNING) — a `deletion` rule
   whose `bypass_actors` grants an always-bypass to `OrganizationAdmin` is
   worth a second look, not a refusal. Deleting a branch requires only write
@@ -541,7 +530,11 @@ see [Validating a ruleset before it applies](#validating-a-ruleset-before-it-app
 404s on personal accounts. Works for any GitHub org. For personal
 accounts, pass explicit positional `<user>/<repo>` arguments.
 
-**Drift is INFORMATIONAL by default** — the audit always exits 0,
+**A failed read is never "no drift".** A repo, ruleset listing or ruleset
+detail the API would not return is reported as "could not audit", and the
+run exits 2 whatever `--strict` says.
+
+**Drift is INFORMATIONAL by default** — the audit exits 0 on drift,
 because repos may legitimately diverge (e.g. a docs repo with
 auto-merge disabled during active editing, or a repo running a
 different merge policy on purpose). The script surfaces divergence;
@@ -582,7 +575,7 @@ To require a human approval in this path, edit the JSON's `required_approving_re
 
 ## Out of scope (for now)
 
-- Org-level *variants* that mirror the repo-level `clud-bug`/`skdd`/`public-guard` opinions (required status checks, human review) — `org-baseline`, `org-default-protection`, and `org-staging` cover the two-tier main/dev model (see [Org-level baseline](#org-level-baseline)); a required-status-checks org variant is not built yet
+- Org-level *variants* that mirror the repo-level `clud-bug`/`skdd`/`public-guard` opinions — the org presets cover the two-tier main/dev model and one required `ci` check (see [Org-level rulesets](#org-level-rulesets)); per-tool required checks at org level are not built
 - Tag protection
 - Push rulesets (file paths, file sizes, etc.)
 - Required signed commits — high friction for AI agents without signing keys

@@ -12,8 +12,9 @@ the same PR if the policy itself changes. The ruling is the owner's; the mechani
    linear history, squash-only, an approval floor, a human merges. **Never flip the default
    branch to `dev`** — see [Why the default branch never flips](#why-the-default-branch-never-flips).
 2. **`dev` is the staging/integration branch, on every repo.** Protected by `org-staging`
-   (`refs/heads/dev`): CI required, no approval floor, agents may merge when green after
-   review; auto-merge allowed.
+   (`refs/heads/dev`): no approval floor, agents may merge when green after review;
+   auto-merge allowed. CI is required on `dev` by its own ruleset, `CI must pass`, not by
+   `org-staging`.
 3. **Everything targets `dev`** — humans, agents, bots, dependabot. `dev → main` is a single
    squash promotion PR with its own review, merged by a human, only when a batch is done or
    something on `main` is actively wrong.
@@ -38,9 +39,10 @@ that assumes "default" means "where day-to-day work happens" — `~DEFAULT_BRANC
 re-resolves. Two things break at once, one loud and one silent:
 
 - **Loud:** `org-default-protection` now ALSO applies to `dev`, stacking its 1-approval /
-  linear-history / squash-only rules on top of `org-staging`'s 0-approval rules. Agents can no
-  longer auto-merge to `dev` — every merge there now needs a human approval. This is usually
-  how the misconfiguration gets noticed.
+  linear-history / squash-only rules on top of `org-staging`'s 0-approval rules. A merge to
+  `dev` now needs an approving review, unless the merging actor holds an `always` bypass on
+  `org-default-protection` (see [Who can get past the rules](#who-can-get-past-the-rules)).
+  This is usually how the misconfiguration gets noticed.
 - **Silent, if `org-default-protection` targeted `~DEFAULT_BRANCH` alone:** `main` would lose
   its `~DEFAULT_BRANCH`-keyed protection the moment it stopped being default. Nobody would
   notice until an unreviewed push landed in production.
@@ -69,19 +71,52 @@ affected repo for the specific case found during the 2026-09-15 audit.
 
 ## What "org-wide" means in practice
 
-`org-baseline`, `org-default-protection`, and `org-staging` are **organization-level**
-rulesets (`repository_name: ~ALL`) — applied once, via `bin/apply-org.sh <org> <variant>`,
-covering every repo in the org including ones created after the ruleset was applied. They
-require the `admin:org` scope and org-owner membership; see
-[Org-level baseline](../README.md#org-level-baseline) in the README for the exact commands.
+The org runs five **organization-level** rulesets, covering every repo in the org including
+ones created later:
 
-They do **not** require a repo to have a `dev` branch to be "applied" — `org-staging` targets
-the literal ref `refs/heads/dev`, and a ruleset targeting a ref that doesn't exist yet on a
-given repo simply has nothing to protect there until the branch is created. That's what
-`bin/ensure-dev-branch.sh` is for: creating the missing `dev` branch (from the current default
-branch's HEAD, additive only, never touching an existing `dev`) is the other half of "every
-repo gets dev + org-staging" — the ruleset is already there org-wide; the branch is the
-per-repo gap.
+| Ruleset | Targets | What it does |
+|---|---|---|
+| `org-baseline` | `~DEFAULT_BRANCH`, `refs/heads/main` | PR required, force-push and deletion blocked. |
+| `org-default-protection` | `~DEFAULT_BRANCH`, `refs/heads/main` | Production: 1 approval, code-owner review, thread resolution, stale reviews dismissed, squash-only, linear history, force-push and deletion blocked. |
+| `org-staging` | `refs/heads/dev` | PR required with no approval floor, deletion blocked. |
+| `CI must pass` | `~DEFAULT_BRANCH`, `refs/heads/dev` | The `ci` status check must pass. |
+| `no-delete-dev-main` | `refs/heads/dev`, `refs/heads/main` | Deletion blocked, with no bypass. |
+
+The first four have presets under `rulesets/` (`org-baseline.json`,
+`org-default-protection.json`, `org-staging.json`, `org-ci-must-pass.json`), captured from
+live. `no-delete-dev-main` has none: it has no bypass actor, which
+`bin/validate-ruleset.sh`'s `admin-bypass-required` check refuses, so it is kept by hand.
+
+`bin/apply-org.sh <org> <variant>` is a **dry run by default**: it prints the difference
+between a preset and the live ruleset of that name and writes nothing. It writes only with
+`--apply`, and refuses even then when two live rulesets share the name, the live read failed,
+or the preset would remove a bypass actor, a ref target or a rule, or change a bypass mode
+from `pull_request` to `always` — unless `--allow-loosening` is given. It needs the
+`admin:org` scope and org-owner membership; see
+[Org-level rulesets](../README.md#org-level-rulesets) in the README for the commands.
+
+### Who can get past the rules
+
+Each ruleset's bypass list is in its preset. Two bypass modes are in use:
+
+- **`always`** — the actor can push or merge past the rule directly. `org-baseline` and
+  `org-default-protection` give this to org owners, the repository write and admin roles,
+  and one GitHub App; `CI must pass` gives it to org owners.
+- **`pull_request`** — the actor can merge a pull request past the rule's requirements, but
+  cannot push past it. `org-staging` gives this to the same four actors.
+
+So a merge to `main` does not always need a human approval: an actor with an `always` bypass
+on the production rulesets can merge without one.
+
+### The `dev` branch itself
+
+The rulesets do **not** require a repo to have a `dev` branch — `org-staging` targets the
+literal ref `refs/heads/dev`, and a ruleset targeting a ref that doesn't exist yet on a given
+repo has nothing to protect there until the branch is created. `bin/ensure-dev-branch.sh`
+creates the missing `dev` branch (from the current default branch's HEAD, additive only, never
+touching an existing `dev`). It is also a **dry run by default** and creates only with
+`--apply`. It skips archived repos and forks (unless `--include-forks`), treats only a `404` on
+`branches/dev` as missing, and exits non-zero when any repo failed or could not be read.
 
 ## What's still manual
 

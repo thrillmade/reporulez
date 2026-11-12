@@ -1,0 +1,16 @@
+{
+  "name": "fixture-admin-bypass-exempt-mode",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["refs/heads/dev"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "exempt" },
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "exempt" }
+  ],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "pull_request", "parameters": { "required_approving_review_count": 0 } }
+  ]
+}

@@ -3,13 +3,17 @@
 # or more target repositories. Read-only — never mutates anything.
 #
 # Drift is INFORMATIONAL by default — the audit surfaces divergences
-# from the reporulez canonical settings but always exits 0. Repos may
-# legitimately diverge (e.g. tokenomics with auto-merge disabled
+# from the reporulez canonical settings but exits 0 on drift. Repos may
+# legitimately diverge (e.g. a repo with auto-merge disabled
 # during active doc work). The audit is a starting point for noticing;
 # the human decides whether each drift is intentional or stale.
 #
 # Use --strict to flip the policy: exit 1 on any drift, suitable for a
 # scheduled CI gate that fails when any repo drifts.
+#
+# A read that fails is never "no drift": a repo, ruleset listing or ruleset
+# detail the API would not return is reported as "could not audit", and the
+# run exits 2 whatever --strict says.
 #
 # Usage: audit.sh <owner/repo>...
 #        audit.sh --all <owner>
@@ -65,7 +69,7 @@ die() { echo "error: $*" >&2; exit 2; }
 info() { echo "==> $*" >&2; }
 
 usage() {
-  sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
+  sed -n '2,49p' "$0" | sed 's/^# //; s/^#//'
 }
 
 # audit.sh is always run from a local checkout (never curl-piped, unlike
@@ -107,6 +111,9 @@ EXPECTED_SETTINGS=(
 
 # Track drift globally so the exit code reflects it.
 DRIFT_FOUND=0
+# Track failed reads separately: a repo we could not read was not audited,
+# so it can never count towards "no drift".
+COULD_NOT_AUDIT=0
 
 audit_ruleset() {
   # Append ruleset-coverage lines to the calling function's `lines` array.
@@ -121,9 +128,9 @@ audit_ruleset() {
   # happens to be the same today, but the param removes any ambiguity
   # and protects against a future default flip.
   rulesets_json="$(gh api --paginate "repos/$repo/rulesets?includes_parents=true" 2>&1)" || {
-    lines+=("$(printf '  ✗ %-32s = could not GET repos/%s/rulesets' "ruleset_listing" "$repo")")
+    lines+=("$(printf '  ✗ %-32s = could not audit: GET repos/%s/rulesets failed' "ruleset_listing" "$repo")")
     repo_has_drift=1
-    DRIFT_FOUND=1
+    COULD_NOT_AUDIT=1
     return
   }
 
@@ -187,14 +194,15 @@ audit_ruleset() {
         done <<< "$val_output"
       elif [[ "$val_exit" -ge 2 ]]; then
         field_violations+=("(ruleset id=$rid) could not run field validation: $val_output")
+        COULD_NOT_AUDIT=1
       fi
     fi
   done <<< "$active_ids"
 
   if [[ ${#fetch_failures[@]} -gt 0 ]]; then
-    lines+=("$(printf '  ✗ %-32s = could not GET detail for ruleset id(s): %s' "ruleset_detail_fetch" "${fetch_failures[*]}")")
+    lines+=("$(printf '  ✗ %-32s = could not audit: GET failed for ruleset id(s): %s' "ruleset_detail_fetch" "${fetch_failures[*]}")")
     repo_has_drift=1
-    DRIFT_FOUND=1
+    COULD_NOT_AUDIT=1
     # Don't `return` — we still want to report which rules WERE confirmed
     # present from the rulesets we DID fetch. The failed-fetch row above
     # tells the reader why the downstream rows may be incomplete.
@@ -247,8 +255,8 @@ audit_one() {
   json="$(gh api "repos/$repo" 2>&1)" || {
     echo
     echo "── $repo ──"
-    echo "  ✗ failed to GET repos/$repo (not found, no access, or rate-limited)"
-    DRIFT_FOUND=1
+    echo "  ✗ could not audit: GET repos/$repo failed (not found, no access, or rate-limited)"
+    COULD_NOT_AUDIT=1
     return
   }
 
@@ -326,10 +334,14 @@ done
 if [[ -n "$USE_ALL_OWNER" ]]; then
   [[ ${#REPOS[@]} -eq 0 ]] || die "--all is mutually exclusive with positional repos"
   info "Enumerating non-archived repos under $USE_ALL_OWNER"
-  while read -r REPO; do
-    REPOS+=("$REPO")
-  done < <(gh api --paginate "orgs/$USE_ALL_OWNER/repos?per_page=100" \
-            --jq '.[] | select(.archived == false) | .full_name')
+  # Captured first, not read through a process substitution: a failed
+  # listing must stop the run ("could not audit"), not look like an empty org.
+  LISTING="$(gh api --paginate "orgs/$USE_ALL_OWNER/repos?per_page=100" \
+            --jq '.[] | select(.archived == false) | .full_name' 2>/dev/null)" \
+    || die "could not audit: could not list repos under $USE_ALL_OWNER"
+  while IFS= read -r REPO; do
+    [[ -n "$REPO" ]] && REPOS+=("$REPO")
+  done <<< "$LISTING"
   [[ ${#REPOS[@]} -gt 0 ]] || die "no non-archived repos found under $USE_ALL_OWNER"
 fi
 
@@ -346,6 +358,11 @@ for repo in "${REPOS[@]}"; do
 done
 
 echo
+if [[ "$COULD_NOT_AUDIT" -ne 0 ]]; then
+  echo "✗ could not audit: one or more API reads failed (see the rows above). This is not a drift verdict."
+  exit 2
+fi
+
 if [[ "$DRIFT_FOUND" -eq 0 ]]; then
   echo "✓ no drift detected across ${#REPOS[@]} repo(s)."
   exit 0
