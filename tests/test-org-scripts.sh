@@ -958,7 +958,7 @@ done
 run "$AUDIT" --help
 expect_exit "audit --help exits 0" 0
 for want in "Exit codes" "could not audit" "Opt-in because it adds 2 API calls per repo." \
-    "with the appropriate variant. See \`apply.sh --help\`."; do
+    "--apply (and the flag it names, if it refuses). See \`apply.sh --help\`."; do
   expect_out "audit --help carries '$want'" "$want"
 done
 run "$AUDIT"
