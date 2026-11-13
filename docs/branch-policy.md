@@ -104,7 +104,13 @@ flag permits only its own kind. It also refuses two live rulesets of one name, a
 matches only by ASCII case, spaces, hyphens or underscores (look-alike characters from other
 scripts are not detected), and a live read that failed or returned nothing usable. Exit codes:
 `0` no difference or applied, `1` a difference exists (dry run), `2` refused or failed.
-It needs the `admin:org` scope and org-owner membership; see
+`bin/apply.sh <owner/repo>` is the same on a single repository and uses the same comparison
+(`bin/ruleset-compare.sh`): a dry run by default for the settings change, the
+`.github/dependabot.yml` write and the ruleset write; the same three kinds; the same two
+flags; the same exit codes. The checked-in per-repository presets carry one bypass actor
+where a hand-extended live ruleset carries more, so a plain `--apply` on such a repository is
+refused for removing them. It reads everything before its first write, so a failed read leaves
+nothing half-applied. The org script needs the `admin:org` scope and org-owner membership; see
 [Org-level rulesets](../README.md#org-level-rulesets) in the README for the full list and the
 commands.
 

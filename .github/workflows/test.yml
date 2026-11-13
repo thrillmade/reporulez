@@ -15,6 +15,8 @@ name: test
 #     "examines nothing must not exit 0" guard
 #   - tests/test-org-scripts.sh -- the write paths of apply-org.sh and
 #     ensure-dev-branch.sh, and audit.sh's failed-read handling
+#   - tests/test-apply-repo.sh -- bin/apply.sh's dry run, refusals and
+#     write order, and the shared bin/ruleset-compare.sh library's loading
 
 on:
   pull_request:
@@ -80,6 +82,12 @@ jobs:
         # `gh` that records every call; asserts no dry run writes, refusals
         # write nothing, and a failed read is never treated as success.
         run: bash tests/test-org-scripts.sh
+
+      - name: bin/apply.sh regression suite
+        # apply.sh against the same recording fake `gh`: a dry run by default
+        # for settings, dependabot file and ruleset; refusals write nothing;
+        # an unusable live read or library fetch ends in exit 2 before any write.
+        run: bash tests/test-apply-repo.sh
 
   # Required by the org-wide "CI must pass" ruleset: a status check named
   # exactly `ci`. Relays `test`'s result under the name the org rule requires.
