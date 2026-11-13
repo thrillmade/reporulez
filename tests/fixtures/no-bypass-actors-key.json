@@ -6,6 +6,7 @@
     "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
   },
   "rules": [
-    { "type": "deletion" }
+    { "type": "deletion" },
+    { "type": "required_linear_history" }
   ]
 }

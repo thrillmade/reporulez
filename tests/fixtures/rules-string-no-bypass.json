@@ -1,0 +1,16 @@
+{
+  "name": "fixture-rules-string-no-bypass",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/dev",
+        "refs/heads/main"
+      ],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [],
+  "rules": "deletion"
+}

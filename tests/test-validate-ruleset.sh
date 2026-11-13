@@ -80,9 +80,10 @@ for f in "$REPO_ROOT"/rulesets/*.json; do
     "$VALIDATOR" "$f"
 done
 
-# org-baseline.json specifically ships OrganizationAdmin (not RepositoryRole
-# admin) as its bypass, and does so ON PURPOSE (reporulez PR #69 panel, pass
-# 2): it is the org-WIDE floor apply-org.sh advertises as protecting "EVERY
+# org-baseline.json carries OrganizationAdmin first on its bypass list (it
+# also carries RepositoryRole entries, as the live ruleset does), and keeps
+# OrganizationAdmin ON PURPOSE (reporulez PR #69 panel, pass 2): it is the
+# org-WIDE floor apply-org.sh advertises as protecting "EVERY
 # repo in the org... including repos created in the future," and
 # OrganizationAdmin is the only bypass GitHub documents as PROVABLY covering
 # every org owner on every repo, present and future, unconditionally.
@@ -139,6 +140,66 @@ assert_case "empty bypass_actors is flagged" 1 \
 assert_case "omitted bypass_actors key is flagged (not a jq crash)" 1 \
   "[admin-bypass-required]" \
   "$VALIDATOR" "$FIXTURES/no-bypass-actors-key.json"
+
+# The one exception: a ruleset whose every rule is `deletion` gates no commit,
+# push or merge, so it cannot lock anyone out of ordinary work and needs no
+# bypass. The org's live `no-delete-dev-main` is this shape. The exception is
+# exactly that narrow: add one merge-gating rule, add `non_fast_forward`
+# (missing-bypass.json above), or carry no rules at all, and the check fires.
+assert_case "deletion-only ruleset with no bypass passes admin-bypass-required" 0 \
+  "is valid" \
+  "$VALIDATOR" "$FIXTURES/deletion-only-no-bypass.json"
+
+assert_case "deletion + pull_request with no bypass is still flagged" 1 \
+  "[admin-bypass-required]" \
+  "$VALIDATOR" "$FIXTURES/deletion-and-pull-request-no-bypass.json"
+
+assert_case "a ruleset with no rules and no bypass is still flagged" 1 \
+  "[admin-bypass-required]" \
+  "$VALIDATOR" "$FIXTURES/empty-rules-no-bypass.json"
+
+# The exemption holds only for a WELL-FORMED deletion-only ruleset: `rules` a
+# non-empty array whose every element is an object with `type` exactly
+# `deletion`. Every other shape is not exempt -- flagged (exit 1), or, where
+# the shape breaks the checks themselves, refused as unreadable (exit 2).
+assert_case "two deletion rules and no bypass is exempt" 0 \
+  "is valid" \
+  "$VALIDATOR" "$FIXTURES/two-deletion-rules-no-bypass.json"
+for shape in rules-object-deletion deletion-capitalised deletion-and-untyped rules-missing; do
+  assert_case "malformed deletion-only shape '$shape' is not exempt" 1 \
+    "[admin-bypass-required]" \
+    "$VALIDATOR" "$FIXTURES/$shape-no-bypass.json"
+done
+for shape in rules-string deletion-element-not-object; do
+  assert_case "malformed deletion-only shape '$shape' is not exempt (unreadable, exit 2)" 2 \
+    "validation logic failed" \
+    "$VALIDATOR" "$FIXTURES/$shape-no-bypass.json"
+done
+
+assert_case "org-no-delete-dev-main.json (captured from live, no bypass) passes" 0 \
+  "is valid" \
+  "$VALIDATOR" "$REPO_ROOT/rulesets/org-no-delete-dev-main.json"
+
+# An admin bypass in `pull_request` mode counts: the admin still gets past the
+# rule through a pull request, so there is no lock-out. The org's live
+# `org-staging` ruleset is this shape. Any other mode (`exempt`) does not.
+assert_case "admin bypass in pull_request mode satisfies admin-bypass-required" 0 \
+  "is valid" \
+  "$VALIDATOR" "$FIXTURES/admin-bypass-pull-request-mode.json"
+
+assert_case "admin bypass in exempt mode does not satisfy admin-bypass-required" 1 \
+  "[admin-bypass-required]" \
+  "$VALIDATOR" "$FIXTURES/admin-bypass-exempt-mode.json"
+
+# A pull_request-mode OrganizationAdmin cannot delete past a deletion rule, so
+# the deletion advisory must stay quiet on it.
+PR_MODE_OUTPUT="$("$VALIDATOR" "$FIXTURES/admin-bypass-pull-request-mode.json" 2>&1)"
+if grep -qF "[bypass-defeats-deletion-restriction]" <<< "$PR_MODE_OUTPUT"; then
+  echo "FAIL: bypass-defeats-deletion-restriction fired on a pull_request-mode OrganizationAdmin bypass"
+  FAIL=$((FAIL + 1))
+else
+  PASS=$((PASS + 1))
+fi
 
 # --- bypass-defeats-deletion-restriction (this repo's own rule, WARNING) -
 #
@@ -243,6 +304,53 @@ assert_case "empty stdin errors (exit 2), not a silent pass" 2 \
 assert_case "no arguments at all errors (exit 2), not a silent pass" 2 \
   "-" \
   "$VALIDATOR"
+
+# Exit 1 means "violations found, printed above" and nothing else. An
+# unexpected failure -- here mktemp fails before any check runs, which under
+# `set -e` alone exited 1 with no output -- exits 2 with a message. The
+# fixture has a real violation, so a silent 1 here would be a lie twice over.
+BADBIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$BADBIN/mktemp"; chmod +x "$BADBIN/mktemp"
+assert_case "an unexpected internal failure exits 2 with a message, never a silent 1" 2 \
+  "failed unexpectedly (exit 1) -- nothing was validated" \
+  env PATH="$BADBIN:$PATH" "$VALIDATOR" "$FIXTURES/missing-bypass.json"
+rm -rf "$BADBIN"
+
+# Exactly one JSON document. Two of them used to print a violation line per
+# document, hit an arithmetic error on a two-line count, and end "valid".
+BAD="$FIXTURES/missing-bypass.json"; GOOD="$FIXTURES/valid-full.json"
+MULTI="$(mktemp -d)"
+cat "$BAD" "$BAD" > "$MULTI/bad-bad.json"
+cat "$GOOD" "$BAD" > "$MULTI/good-bad.json"
+cat "$BAD" "$GOOD" > "$MULTI/bad-good.json"
+{ cat "$GOOD"; echo 'garbage'; } > "$MULTI/doc-garbage.json"
+for f in bad-bad good-bad bad-good doc-garbage; do
+  assert_case "two-document input '$f' exits 2" 2 "-" "$VALIDATOR" "$MULTI/$f.json"
+  want="nothing was validated"; [[ "$f" != doc-garbage ]] || want="not valid JSON"
+  assert_case "two-document input '$f' says why" 2 "$want" "$VALIDATOR" "$MULTI/$f.json"
+  out="$("$VALIDATOR" "$MULTI/$f.json" 2>&1)"
+  if grep -q "is valid" <<< "$out"; then FAIL=$((FAIL + 1)); echo "FAIL: '$f' printed 'valid': $out"; else PASS=$((PASS + 1)); fi
+done
+rm -rf "$MULTI"
+
+# A count that is not a single non-negative integer is never "no violations".
+REAL_JQ="$(command -v jq)"
+SHIM="$(mktemp -d)"
+cat > "$SHIM/jq" <<SHIM_JQ
+#!/usr/bin/env bash
+case "\$*" in *'select(.severity == "error")'*) printf '1\n1\n'; exit 0 ;; esac
+exec "$REAL_JQ" "\$@"
+SHIM_JQ
+chmod +x "$SHIM/jq"
+assert_case "a two-line error count exits 2, never valid" 2 \
+  "could not count violations" \
+  env PATH="$SHIM:$PATH" "$VALIDATOR" "$FIXTURES/missing-bypass.json"
+rm -rf "$SHIM"
+
+# --help prints the whole usage text, exit codes included.
+assert_case "--help prints the exit-code contract in full" 0 \
+  "it exits 1 ONLY after printing at least one" \
+  "$VALIDATOR" --help
 
 echo
 echo "$PASS passed, $FAIL failed."

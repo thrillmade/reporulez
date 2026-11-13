@@ -2,8 +2,8 @@ name: test
 
 # Reporulez is bash + JSON + YAML, no test runner. `test` here lints
 # every shipped artifact so a malformed PR breaks loudly here rather
-# than at install time on someone else's repo, and runs the one real
-# behavioral regression suite the repo has:
+# than at install time on someone else's repo, and runs the behavioral
+# regression suites:
 #   - `bash -n` per-file syntax check on bin/*.sh
 #   - jq-parse every ruleset/template JSON
 #   - yaml-parse every dependabot template YAML
@@ -13,6 +13,8 @@ name: test
 #   - tests/test-check-dependabot-target.sh -- bin/check-dependabot-target.sh's
 #     own regression guard (reporulez#71 ask B), including the
 #     "examines nothing must not exit 0" guard
+#   - tests/test-org-scripts.sh -- the write paths of apply-org.sh and
+#     ensure-dev-branch.sh, and audit.sh's failed-read handling
 
 on:
   pull_request:
@@ -72,6 +74,12 @@ jobs:
           set -euo pipefail
           python3 -m pip install --quiet pyyaml
           bash tests/test-check-dependabot-target.sh
+
+      - name: org scripts' write-path regression suite
+        # apply-org.sh, ensure-dev-branch.sh and audit.sh run against a fake
+        # `gh` that records every call; asserts no dry run writes, refusals
+        # write nothing, and a failed read is never treated as success.
+        run: bash tests/test-org-scripts.sh
 
   # Required by the org-wide "CI must pass" ruleset: a status check named
   # exactly `ci`. Relays `test`'s result under the name the org rule requires.

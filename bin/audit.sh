@@ -3,13 +3,26 @@
 # or more target repositories. Read-only — never mutates anything.
 #
 # Drift is INFORMATIONAL by default — the audit surfaces divergences
-# from the reporulez canonical settings but always exits 0. Repos may
-# legitimately diverge (e.g. tokenomics with auto-merge disabled
+# from the reporulez canonical settings but exits 0 on drift. Repos may
+# legitimately diverge (e.g. a repo with auto-merge disabled
 # during active doc work). The audit is a starting point for noticing;
 # the human decides whether each drift is intentional or stale.
 #
 # Use --strict to flip the policy: exit 1 on any drift, suitable for a
 # scheduled CI gate that fails when any repo drifts.
+#
+# A read that fails is never "no drift": a repo, ruleset listing or ruleset
+# detail the API would not return, or returned as something unusable (an
+# empty body, null, the wrong shape), is reported as "could not audit", and
+# the run exits 2 whatever --strict says. So is a field validation that did
+# not produce a verdict: the validator missing, or any result other than
+# exit 0 or exit 1 with at least one violation line.
+#
+# Exit codes (no others: an unexpected internal failure is reported as 2):
+#   0   no drift; or drift found without --strict (informational)
+#   1   drift found, with --strict
+#   2   could not audit (a failed read or a validation that did not run),
+#       or a usage error
 #
 # Usage: audit.sh <owner/repo>...
 #        audit.sh --all <owner>
@@ -21,6 +34,14 @@
 #   --all <owner>     Enumerate every repo under <owner> and audit
 #                     each. Filters out archived repos. Useful as an
 #                     org-wide drift check.
+#
+# This script does NOT check the reporulez#71 org branch policy (does
+# `dev` exist, is the repo's default branch still `main`) — that check
+# lives in exactly one place, `bin/ensure-dev-branch.sh --dry-run`, so it
+# isn't duplicated (and able to drift from itself) here. Run both for a
+# full org audit:
+#   ./bin/audit.sh --all thrillmade --include-ruleset
+#   ./bin/ensure-dev-branch.sh --all thrillmade --dry-run
 #
 # Flags:
 #   --strict           Exit 1 when any drift is detected (default exit 0).
@@ -56,8 +77,24 @@ set -euo pipefail
 die() { echo "error: $*" >&2; exit 2; }
 info() { echo "==> $*" >&2; }
 
+# Set right before every deliberate `exit 0` / `exit 1`. Any other non-zero
+# exit -- a `set -e` failure on a body jq could not parse -- is reported as
+# "could not audit" with exit 2, never as a verdict.
+DELIBERATE_EXIT=""
+finish() { DELIBERATE_EXIT=1; exit "$1"; }
+on_exit() {
+  local rc=$?
+  if [[ "$rc" -ne 0 && "$rc" -ne 2 && -z "$DELIBERATE_EXIT" ]]; then
+    echo "✗ could not audit: unexpected failure (exit $rc). This is not a drift verdict." >&2
+    exit 2
+  fi
+}
+trap on_exit EXIT
+
+# The whole header comment, however long it grows: every line from 2 up to
+# the first line that is not a comment.
 usage() {
-  sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
+  awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$0"
 }
 
 # audit.sh is always run from a local checkout (never curl-piped, unlike
@@ -99,6 +136,9 @@ EXPECTED_SETTINGS=(
 
 # Track drift globally so the exit code reflects it.
 DRIFT_FOUND=0
+# Track failed reads separately: a repo we could not read was not audited,
+# so it can never count towards "no drift".
+COULD_NOT_AUDIT=0
 
 audit_ruleset() {
   # Append ruleset-coverage lines to the calling function's `lines` array.
@@ -112,16 +152,20 @@ audit_ruleset() {
   # inherited rulesets alongside repo-level ones. GitHub's API default
   # happens to be the same today, but the param removes any ambiguity
   # and protects against a future default flip.
-  rulesets_json="$(gh api --paginate "repos/$repo/rulesets?includes_parents=true" 2>&1)" || {
-    lines+=("$(printf '  ✗ %-32s = could not GET repos/%s/rulesets' "ruleset_listing" "$repo")")
+  # A listing that exits 0 but is not a list (an empty body, null, an
+  # object) is a failed read too, not "no rulesets".
+  local active_ids
+  if ! rulesets_json="$(gh api --paginate "repos/$repo/rulesets?includes_parents=true" 2>/dev/null)" \
+     || ! active_ids="$(printf '%s' "$rulesets_json" | jq -rse '
+          select(length > 0 and all(.[]; type == "array")) | add
+          | [.[] | select(.enforcement == "active") | .id] | map(tostring) | join("\n")' 2>/dev/null)"; then
+    lines+=("$(printf '  ✗ %-32s = could not audit: GET repos/%s/rulesets failed or returned no list' "ruleset_listing" "$repo")")
     repo_has_drift=1
-    DRIFT_FOUND=1
+    COULD_NOT_AUDIT=1
     return
-  }
+  fi
 
   # Find any active ruleset (org-level inherited counts via source_type=Organization).
-  local active_ids
-  active_ids="$(printf '%s' "$rulesets_json" | jq -r '.[] | select(.enforcement == "active") | .id')"
   if [[ -z "$active_ids" ]]; then
     lines+=("$(printf '  ✗ %-32s = no active ruleset covers this repo' "ruleset_coverage")")
     repo_has_drift=1
@@ -145,7 +189,10 @@ audit_ruleset() {
   local field_violations=()
   while IFS= read -r rid; do
     local detail
-    if ! detail="$(gh api "repos/$repo/rulesets/$rid" 2>&1)"; then
+    # A detail that is not a ruleset object with a rules list is a failed
+    # read, the same as a non-zero exit.
+    if ! detail="$(gh api "repos/$repo/rulesets/$rid" 2>/dev/null)" \
+       || ! printf '%s' "$detail" | jq -se 'length == 1 and (.[0] | type == "object" and (.rules | type) == "array")' >/dev/null 2>&1; then
       fetch_failures+=("$rid")
       continue
     fi
@@ -158,10 +205,13 @@ audit_ruleset() {
     # bypass_actors broadened past what any variant ships), which is
     # exactly the shape of the 2026-08-14 agent-skills/dev incident this
     # script's bypass-defeats-deletion-restriction check exists for.
-    # Skipped (not failed) when the validator isn't present locally --
-    # audit.sh never curl-fetches a sibling script, and a missing
-    # validator is a reason to say so, not a reason to report false drift.
-    if [[ -f "$VALIDATOR" ]]; then
+    # A missing validator is "could not audit", never "no violations":
+    # audit.sh never curl-fetches a sibling script, and a check that did not
+    # run has no result to report.
+    if [[ ! -f "$VALIDATOR" ]]; then
+      field_violations+=("(ruleset id=$rid) could not run field validation: $VALIDATOR not found")
+      COULD_NOT_AUDIT=1
+    else
       local val_output val_exit
       # NOT `val_output="$(...)"; val_exit=$?` -- under `set -e`, a bare
       # assignment from a failing command substitution aborts the whole
@@ -173,20 +223,32 @@ audit_ruleset() {
       else
         val_exit=$?
       fi
+      # Exactly two results are a verdict: exit 0, or exit 1 with at least
+      # one violation line in the validator's own "✗ [<check>] " form.
+      # Anything else -- exit 1 with no such line (the validator died before
+      # it checked anything), exit 2, any other code -- is a validation
+      # that did not run, never "no violations".
+      local recognised=() violation_re='^✗ \[[a-z0-9-]+\] '
       if [[ "$val_exit" -eq 1 ]]; then
         while IFS= read -r vline; do
-          [[ "$vline" == "✗"* ]] && field_violations+=("(ruleset id=$rid) $vline")
+          [[ "$vline" =~ $violation_re ]] && recognised+=("(ruleset id=$rid) $vline")
         done <<< "$val_output"
-      elif [[ "$val_exit" -ge 2 ]]; then
-        field_violations+=("(ruleset id=$rid) could not run field validation: $val_output")
+      fi
+      if [[ "$val_exit" -eq 0 ]]; then
+        :
+      elif [[ "$val_exit" -eq 1 && ${#recognised[@]} -gt 0 ]]; then
+        field_violations+=("${recognised[@]}")
+      else
+        field_violations+=("(ruleset id=$rid) could not run field validation (validator exit $val_exit, no violation reported): ${val_output:-no output}")
+        COULD_NOT_AUDIT=1
       fi
     fi
   done <<< "$active_ids"
 
   if [[ ${#fetch_failures[@]} -gt 0 ]]; then
-    lines+=("$(printf '  ✗ %-32s = could not GET detail for ruleset id(s): %s' "ruleset_detail_fetch" "${fetch_failures[*]}")")
+    lines+=("$(printf '  ✗ %-32s = could not audit: GET failed for ruleset id(s): %s' "ruleset_detail_fetch" "${fetch_failures[*]}")")
     repo_has_drift=1
-    DRIFT_FOUND=1
+    COULD_NOT_AUDIT=1
     # Don't `return` — we still want to report which rules WERE confirmed
     # present from the rulesets we DID fetch. The failed-fetch row above
     # tells the reader why the downstream rows may be incomplete.
@@ -236,13 +298,14 @@ audit_one() {
   local lines=()
 
   local json
-  json="$(gh api "repos/$repo" 2>&1)" || {
+  if ! json="$(gh api "repos/$repo" 2>/dev/null)" \
+     || ! printf '%s' "$json" | jq -se 'length == 1 and (.[0] | type == "object" and ((keys - ["message","status","documentation_url","errors"]) | length) > 0)' >/dev/null 2>&1; then
     echo
     echo "── $repo ──"
-    echo "  ✗ failed to GET repos/$repo (not found, no access, or rate-limited)"
-    DRIFT_FOUND=1
+    echo "  ✗ could not audit: GET repos/$repo failed or returned no repository (not found, no access, or rate-limited)"
+    COULD_NOT_AUDIT=1
     return
-  }
+  fi
 
   local i=0
   local n=${#EXPECTED_SETTINGS[@]}
@@ -288,14 +351,14 @@ audit_one() {
 }
 
 # Argument parsing. Flags can appear before or after positional repos.
-[[ $# -ge 1 ]] || { usage; exit 1; }
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
 
 REPOS=()
 USE_ALL_OWNER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
-      usage; exit 0 ;;
+      usage; finish 0 ;;
     --strict)          STRICT="true";          shift ;;
     --quiet)           QUIET="true";           shift ;;
     --include-ruleset) INCLUDE_RULESET="true"; shift ;;
@@ -318,14 +381,18 @@ done
 if [[ -n "$USE_ALL_OWNER" ]]; then
   [[ ${#REPOS[@]} -eq 0 ]] || die "--all is mutually exclusive with positional repos"
   info "Enumerating non-archived repos under $USE_ALL_OWNER"
-  while read -r REPO; do
-    REPOS+=("$REPO")
-  done < <(gh api --paginate "orgs/$USE_ALL_OWNER/repos?per_page=100" \
-            --jq '.[] | select(.archived == false) | .full_name')
+  # Captured first, not read through a process substitution: a failed
+  # listing must stop the run ("could not audit"), not look like an empty org.
+  LISTING="$(gh api --paginate "orgs/$USE_ALL_OWNER/repos?per_page=100" \
+            --jq '.[] | select(.archived == false) | .full_name' 2>/dev/null)" \
+    || die "could not audit: could not list repos under $USE_ALL_OWNER"
+  while IFS= read -r REPO; do
+    [[ -n "$REPO" ]] && REPOS+=("$REPO")
+  done <<< "$LISTING"
   [[ ${#REPOS[@]} -gt 0 ]] || die "no non-archived repos found under $USE_ALL_OWNER"
 fi
 
-[[ ${#REPOS[@]} -gt 0 ]] || { usage; exit 1; }
+[[ ${#REPOS[@]} -gt 0 ]] || { usage >&2; exit 2; }
 
 command -v gh >/dev/null || die "gh CLI not found (https://cli.github.com)"
 command -v jq >/dev/null || die "jq not found (brew install jq)"
@@ -338,9 +405,14 @@ for repo in "${REPOS[@]}"; do
 done
 
 echo
+if [[ "$COULD_NOT_AUDIT" -ne 0 ]]; then
+  echo "✗ could not audit: one or more API reads failed (see the rows above). This is not a drift verdict."
+  exit 2
+fi
+
 if [[ "$DRIFT_FOUND" -eq 0 ]]; then
   echo "✓ no drift detected across ${#REPOS[@]} repo(s)."
-  exit 0
+  finish 0
 fi
 
 # Drift was detected. Default behavior is informational — repos may
@@ -348,8 +420,8 @@ fi
 # for a CI gate.
 if [[ "$STRICT" == "true" ]]; then
   echo "✗ drift detected (--strict). Remediation: re-run \`apply.sh <owner/repo> <variant>\` on each drifted repo whose drift is unintentional."
-  exit 1
+  finish 1
 else
   echo "ℹ drift detected. This is INFORMATIONAL — repos may legitimately diverge. Use --strict to make this exit 1 (suitable for CI gate). Remediation when unintentional: re-run \`apply.sh <owner/repo> <variant>\`."
-  exit 0
+  finish 0
 fi
