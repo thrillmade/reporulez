@@ -53,8 +53,12 @@ bash -n bin/apply.sh
 # Apply rulesets to a target repo (dogfood / end-to-end test)
 ./bin/apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] [--human-review]
 
-# Compare an org-level preset with the live org (dry run); --apply writes it
-./bin/apply-org.sh <org> [org-baseline|org-default-protection|org-staging|org-ci-must-pass] [--apply]
+# Compare an org-level preset with the live org. Dry run by default: writes nothing.
+# --apply writes only a change it can show tightens (or creates a missing ruleset);
+# --allow-weakening also permits a weakening, --allow-bypass-removal a removed or
+# narrowed bypass actor; each flag permits only its own kind.
+# Exit: 0 no difference or applied, 1 difference found (dry run), 2 refused or failed.
+./bin/apply-org.sh <org> [org-baseline|org-default-protection|org-staging|org-ci-must-pass|org-no-delete-dev-main] [--apply] [--allow-weakening] [--allow-bypass-removal]
 
 # Validate a ruleset's required fields before it is ever applied
 ./bin/validate-ruleset.sh rulesets/skdd.json

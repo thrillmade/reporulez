@@ -192,9 +192,12 @@ which is worth knowing, not worth blocking. See [Validating a ruleset before it 
 ## Org-level rulesets
 
 Everything above is **repo-level** — one `apply.sh` run per repository. The org itself runs
-five **organization-level** rulesets, which cover every repository in the org, including ones
-created later. Four have a preset under `rulesets/` that `bin/apply-org.sh` compares with, and
-can apply to, the live org:
+**organization-level** rulesets, which apply to the repositories their repository condition
+names, including ones created later. Five were active on 2026-11-12, read from one repository
+with `gh api 'repos/thrillmade/reporulez/rulesets?includes_parents=true'` (the entries whose
+`source_type` is `Organization`); which repositories each one covers was not read, because
+that needs the `admin:org` scope. Each has a preset under `rulesets/` that `bin/apply-org.sh`
+compares with, and can apply to, the live org:
 
 | Ruleset (preset) | Targets | What it does |
 |---|---|---|
@@ -202,11 +205,12 @@ can apply to, the live org:
 | `org-default-protection` (`org-default-protection.json`) | `~DEFAULT_BRANCH`, `refs/heads/main` | Production: 1 approving review, code-owner review, thread resolution, stale reviews dismissed on push, squash-only, linear history, force-push and deletion blocked. |
 | `org-staging` (`org-staging.json`) | `refs/heads/dev` | PR required with no approval floor, any merge method, deletion blocked. Force-push is not blocked. |
 | `CI must pass` (`org-ci-must-pass.json`) | `~DEFAULT_BRANCH`, `refs/heads/dev` | A status check named exactly `ci` must pass. |
-| `no-delete-dev-main` (no preset) | `refs/heads/dev`, `refs/heads/main` | Deletion blocked, with no bypass at all. |
+| `no-delete-dev-main` (`org-no-delete-dev-main.json`) | `refs/heads/dev`, `refs/heads/main` | Deletion blocked, with no bypass at all. |
 
-`no-delete-dev-main` has no preset because it carries no bypass actor, and
-`bin/validate-ruleset.sh`'s `admin-bypass-required` check refuses a ruleset with none. It is
-kept by hand in the org settings.
+`no-delete-dev-main` carries no bypass actor. `bin/validate-ruleset.sh` accepts that only
+because its one rule is `deletion`, which blocks no commit, push or merge; see
+`admin-bypass-required` under [Validating a ruleset before it
+applies](#validating-a-ruleset-before-it-applies).
 
 **Who can get past these rules.** The production-side rulesets (`org-baseline`,
 `org-default-protection`) list org owners, the repository write and admin roles, and one
@@ -224,22 +228,52 @@ merge without one. Each preset's `bypass_actors` is the exact list.
 ```
 
 Variants: `org-baseline` (the default), `org-default-protection`, `org-staging`,
-`org-ci-must-pass`. Without `--apply` the script makes no write call: it reads the live org
-ruleset with the preset's name, normalises both sides the same way and prints the difference,
-or `no difference`. Writing — a `PUT` to replace the live ruleset, or a `POST` when none of that
-name exists — needs `--apply`. Even then it refuses, naming the reason, when:
+`org-ci-must-pass`, `org-no-delete-dev-main`. Without `--apply` the script makes no write
+call: it reads the live org ruleset with the preset's name, normalises both sides the same way
+and prints the difference, or `no difference`. Writing — a `PUT` to replace the live ruleset,
+or a `POST` when none of that name exists — needs `--apply`.
 
-- more than one live ruleset has that name;
-- the live read failed (a failed read is never treated as "nothing is live");
-- the preset would remove a live bypass actor, change a bypass mode from `pull_request` to
-  `always`, remove a ref target, or remove a rule — unless `--allow-loosening` is also given.
+Every difference is printed with its kind:
+
+- **tightens** — enforcement raised (`disabled` < `evaluate` < `active`); a ref or repository
+  `include` entry added, or an `exclude` entry removed; a rule of a known type added; a higher
+  approval count; a `pull_request` review requirement switched on; a merge method removed; a
+  required status check added; strict status checks switched on, or `do_not_enforce_on_create`
+  switched off.
+- **weakens** — everything else. That includes adding a bypass actor in any mode, widening a
+  bypass mode (`pull_request` < `always` < `exempt`), and any field, condition, rule type,
+  parameter or mode the script has no rule for: the check fails closed.
+- **removes bypass** — a live bypass actor removed, or its mode narrowed. That tightens the
+  rules, but can lock out automation that relies on the bypass.
+
+A key present on one side and absent on the other, or present on both with a different JSON
+type (`null` included), is a *weakens*: a missing value is never read as an empty list, `0`,
+`false` or `{}`, so a preset that simply lacks `allowed_merge_methods` is never "removes every
+merge method".
+
+Two present values cannot exist on a real ruleset and are refused as an invalid preset before
+anything is compared: an empty `allowed_merge_methods` (no way to merge at all), and a required
+approval count that is not a whole number from 0 to 10.
+
+`--apply` on its own writes only a difference that is all *tightens*, or creates a ruleset
+when no live ruleset is named like it. A *weakens* needs `--allow-weakening`;
+a *removes bypass* needs `--allow-bypass-removal`. The two flags are independent: each permits
+only its own kind. `--apply` also refuses, naming the reason, when:
+
+- more than one live ruleset has that name, or a live ruleset's name matches the preset's only
+  once case, spaces, hyphens and underscores are ignored (it would otherwise create a
+  near-duplicate beside it). The check folds ASCII case, spaces, hyphens and underscores; look-alike
+  characters from other scripts are not detected;
+- a live read failed or returned nothing usable — an empty body, `null`, the wrong shape, more
+  than one JSON document, or a ruleset missing a field the comparison needs. A failed read is
+  never treated as "nothing is live".
 
 Exit codes: `0` no difference or applied, `1` a difference exists (dry run), `2` refused or
-failed. The presets are captured from the live org rulesets, so a dry run against the org
-today should print `no difference`. One part could not be checked from a repository-level read:
-an org ruleset's repository condition. The presets say `repository_name: ~ALL`, and every
-repository in the org carries all five rulesets today; the first dry run by an org owner shows
-whether live says the same.
+failed — including two variants on one command line, an unknown argument, and any unexpected
+internal failure. The presets are captured from the live org rulesets, so a dry run against
+the org today should print `no difference`. One part could not be checked from a
+repository-level read: an org ruleset's repository condition. The presets say
+`repository_name: ~ALL`; the first dry run by an org owner shows whether live says the same.
 
 **It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
 ruleset that targets a branch, and a write must satisfy **all** of them. `apply-org.sh` does not
@@ -442,7 +476,10 @@ What it checks:
   id=5, or `OrganizationAdmin`), in `bypass_mode` `always` or
   `pull_request`. `pull_request` still lets the admin get past the rule
   through a pull request, so it is not a lock-out; any other mode does not
-  count. A ruleset with no bypass at all blocks its own repair.
+  count. A ruleset with no bypass at all blocks its own repair. One
+  exception: a ruleset whose every rule is `deletion` needs no bypass, since
+  forbidding a branch's deletion blocks no commit, push or merge. Any other
+  rule alongside it, `non_fast_forward` included, and the check applies.
 - **`bypass-defeats-deletion-restriction`** (WARNING) — a `deletion` rule
   whose `bypass_actors` grants an always-bypass to `OrganizationAdmin` is
   worth a second look, not a refusal. Deleting a branch requires only write
@@ -471,9 +508,10 @@ What it checks:
   citations, and what would falsify the `RepositoryRole` assumption.
 
 Exit codes: `0` no ERROR-severity violation (any WARNING still prints), `1`
-one or more ERROR-severity violations (printed, one per line), `2`
-usage/input error (bad path, unreadable stdin, not valid JSON) — a ruleset
-this script could not read is never reported as passing.
+one or more ERROR-severity violations (printed, one per line — exit 1 never
+comes without at least one), `2` usage/input error (bad path, unreadable
+stdin, not valid JSON, or not exactly one JSON object) or any unexpected
+failure — a ruleset this script could not read is never reported as passing.
 
 ## Auditing drift across repos
 
@@ -532,7 +570,12 @@ accounts, pass explicit positional `<user>/<repo>` arguments.
 
 **A failed read is never "no drift".** A repo, ruleset listing or ruleset
 detail the API would not return is reported as "could not audit", and the
-run exits 2 whatever `--strict` says.
+run exits 2 whatever `--strict` says. So is a field validation without a
+verdict: the validator's result counts only when it is exit 0, or exit 1
+with at least one `✗ [<check>]` line.
+
+Exit codes: `0` no drift, or drift without `--strict`; `1` drift with
+`--strict`; `2` could not audit, or a usage error.
 
 **Drift is INFORMATIONAL by default** — the audit exits 0 on drift,
 because repos may legitimately diverge (e.g. a docs repo with

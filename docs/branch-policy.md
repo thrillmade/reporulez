@@ -82,18 +82,31 @@ ones created later:
 | `CI must pass` | `~DEFAULT_BRANCH`, `refs/heads/dev` | The `ci` status check must pass. |
 | `no-delete-dev-main` | `refs/heads/dev`, `refs/heads/main` | Deletion blocked, with no bypass. |
 
-The first four have presets under `rulesets/` (`org-baseline.json`,
-`org-default-protection.json`, `org-staging.json`, `org-ci-must-pass.json`), captured from
-live. `no-delete-dev-main` has none: it has no bypass actor, which
-`bin/validate-ruleset.sh`'s `admin-bypass-required` check refuses, so it is kept by hand.
+All five have presets under `rulesets/` (`org-baseline.json`,
+`org-default-protection.json`, `org-staging.json`, `org-ci-must-pass.json`,
+`org-no-delete-dev-main.json`), captured from live. One part could not be checked from a
+repository-level read: each org ruleset's repository condition. The presets say
+`repository_name: ~ALL`; the first dry run by an org owner shows whether live says the same.
+`no-delete-dev-main` carries no bypass actor, which `bin/validate-ruleset.sh` accepts only
+because its one rule is `deletion` — a rule that blocks no commit, push or merge. The
+exemption holds only for that well-formed shape: `rules` a non-empty list whose every entry has
+`type` exactly `deletion`.
 
 `bin/apply-org.sh <org> <variant>` is a **dry run by default**: it prints the difference
-between a preset and the live ruleset of that name and writes nothing. It writes only with
-`--apply`, and refuses even then when two live rulesets share the name, the live read failed,
-or the preset would remove a bypass actor, a ref target or a rule, or change a bypass mode
-from `pull_request` to `always` — unless `--allow-loosening` is given. It needs the
-`admin:org` scope and org-owner membership; see
-[Org-level rulesets](../README.md#org-level-rulesets) in the README for the commands.
+between a preset and the live ruleset of that name, labels each difference *tightens*,
+*weakens* or *removes bypass*, and writes nothing. With `--apply` alone it writes only a
+difference that is all *tightens*, or creates a ruleset when no live ruleset is named like it.
+A *weakens* — anything it cannot show is tighter, including any field it has no rule for and
+any key present on one side but absent or of another JSON type on the other — needs
+`--allow-weakening`. Removing a live bypass actor or narrowing its mode needs
+`--allow-bypass-removal`, because it can lock out automation that relies on the bypass. Each
+flag permits only its own kind. It also refuses two live rulesets of one name, a live name that
+matches only by ASCII case, spaces, hyphens or underscores (look-alike characters from other
+scripts are not detected), and a live read that failed or returned nothing usable. Exit codes:
+`0` no difference or applied, `1` a difference exists (dry run), `2` refused or failed.
+It needs the `admin:org` scope and org-owner membership; see
+[Org-level rulesets](../README.md#org-level-rulesets) in the README for the full list and the
+commands.
 
 ### Who can get past the rules
 

@@ -49,6 +49,20 @@ die() { echo "error: $*" >&2; exit 2; }
 info() { echo "==> $*" >&2; }
 warn() { echo "!!  $*" >&2; }
 
+# Set right before every deliberate `exit 0` / `exit 1`. Any other non-zero
+# exit -- a `set -e` failure on a body jq could not parse -- is reported as
+# a failed run, exit 2.
+DELIBERATE_EXIT=""
+finish() { DELIBERATE_EXIT=1; exit "$1"; }
+on_exit() {
+  local rc=$?
+  if [[ "$rc" -ne 0 && "$rc" -ne 2 && -z "$DELIBERATE_EXIT" ]]; then
+    echo "error: unexpected failure (exit $rc) -- treated as a failed run" >&2
+    exit 2
+  fi
+}
+trap on_exit EXIT
+
 usage() {
   sed -n '2,27p' "$0" | sed 's/^# //; s/^#//'
 }
@@ -64,7 +78,7 @@ USE_ALL_OWNER=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) usage; exit 0 ;;
+    -h|--help) usage; finish 0 ;;
     --apply)         APPLY="true";         shift ;;
     --dry-run)       DRY_RUN_FLAG="true";  shift ;;
     --strict)        STRICT="true";        shift ;;
@@ -115,7 +129,10 @@ else
 fi
 
 for REPO in "${REPOS[@]}"; do
-  if ! REPO_JSON="$(gh api "repos/$REPO" 2>/dev/null)"; then
+  # A body that is not a repository (empty, null, malformed) is a failed
+  # read, the same as a non-zero exit.
+  if ! REPO_JSON="$(gh api "repos/$REPO" 2>/dev/null)" \
+     || ! printf '%s' "$REPO_JSON" | jq -e 'type == "object" and (.default_branch | type) == "string"' >/dev/null 2>&1; then
     echo "✗ $REPO: could not read repo"
     FAILED=$((FAILED + 1))
     continue
@@ -195,7 +212,7 @@ fi
 
 if [[ "$STRICT" == "true" ]] && [[ "$WOULD_CREATE" -gt 0 || "$DEFAULT_BRANCH_DRIFT" -gt 0 ]]; then
   echo "✗ --strict: ${WOULD_CREATE} repo(s) still lack dev, ${DEFAULT_BRANCH_DRIFT} have a default branch other than main."
-  exit 1
+  finish 1
 fi
 
-exit 0
+finish 0

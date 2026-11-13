@@ -37,9 +37,14 @@
 #       per line, prefixed "✗ [<check>] "). Warnings, if any, print too but
 #       are not what tripped this exit code.
 #   2   usage/input error — missing argument, file not found, unreadable
-#       stdin, or the input is not valid JSON. NEVER exits 0 on an input it
-#       could not read: a validator that cannot find its input errors, it
-#       does not silently pass the thing it never looked at.
+#       stdin, the input is not valid JSON, or it is not exactly one JSON
+#       object (two documents, or a document followed by anything else) —
+#       or any unexpected failure (a temp file it could not make, a jq
+#       crash, a violation count that is not a single number). NEVER exits 0 on an
+#       input it could not read: a validator that cannot find its input
+#       errors, it does not silently pass the thing it never looked at. And
+#       it exits 1 ONLY after printing at least one "✗ [<check>] " line: a
+#       caller may read exit 1 with no such line as "did not run".
 #
 # What it checks, and why these two-plus-one and not more:
 #
@@ -70,12 +75,21 @@
 #   admin-bypass-required (SPEC section 6.6., ERROR) "The ruleset MUST carry
 #     a bypass held by repository administrators ... an incident fix cannot
 #     wait for one." A ruleset with an empty bypass_actors blocks its own
-#     repair. Checked unconditionally, for every ruleset this script is
-#     pointed at. The admin entry (RepositoryRole id=5 or OrganizationAdmin)
+#     repair. Checked for every ruleset this script is pointed at, with the
+#     one exception below. The admin entry (RepositoryRole id=5 or OrganizationAdmin)
 #     must be in bypass_mode `always` OR `pull_request`: `pull_request` still
 #     lets an admin get past the rule through a pull request, so it is not a
 #     lock-out, and the org's live `org-staging` ruleset uses it. `exempt`, or
-#     any other mode, does not count.
+#     any other mode, does not count. One exception: a well-formed ruleset
+#     whose rules are ALL `deletion` needs no bypass -- `rules` a non-empty
+#     array, every element an object whose `type` is exactly `deletion`.
+#     Any other shape (an object, an empty list, a string, `Deletion`, an
+#     element with no type) is not exempt. The
+#     check exists so a gate cannot block the change that fixes it; a rule
+#     that only forbids deleting a branch blocks no commit, push or merge,
+#     so it cannot lock anyone out of ordinary work. The org's live
+#     `no-delete-dev-main` is this shape. Any other rule type alongside it
+#     -- `non_fast_forward` included -- and the check applies as before.
 #
 #   bypass-defeats-deletion-restriction (WARNING; not a SPEC-2 citation —
 #     this repo's own rule) written after a live incident on 2026-08-14: an
@@ -194,12 +208,30 @@ set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 2; }
 
+# Set right before every deliberate exit. Any other non-zero exit -- a
+# `set -e` failure in mktemp, the heredoc write, a jq crash -- is reported as
+# 2: exit 1 means "violations found, printed above" and nothing else.
+DELIBERATE_EXIT=""
+finish() { DELIBERATE_EXIT=1; exit "$1"; }
+JQ_PROGRAM=""
+on_exit() {
+  local rc=$?
+  [[ -z "$JQ_PROGRAM" ]] || rm -f "$JQ_PROGRAM"
+  if [[ "$rc" -ne 0 && "$rc" -ne 2 && -z "$DELIBERATE_EXIT" ]]; then
+    echo "error: validate-ruleset.sh failed unexpectedly (exit $rc) -- nothing was validated" >&2
+    exit 2
+  fi
+}
+trap on_exit EXIT
+
+# The usage text is the header up to "What it checks" (the rationale after
+# it is for readers of the source), however long that part grows.
 usage() {
-  sed -n '2,42p' "$0" | sed 's/^# //; s/^#//'
+  awk 'NR == 1 { next } /^# What it checks/ || !/^#/ { exit } { sub(/^# ?/, ""); print }' "$0"
 }
 
 [[ $# -ge 1 ]] || { usage; exit 2; }
-case "$1" in -h|--help) usage; exit 0 ;; esac
+case "$1" in -h|--help) usage; finish 0 ;; esac
 
 SOURCE="$1"
 
@@ -215,8 +247,12 @@ else
 fi
 
 [[ -n "$RULESET_JSON" ]] || die "$SOURCE_LABEL is empty -- nothing to validate"
+# Exactly one JSON document, and an object: jq would otherwise happily run
+# its program once per document and print a verdict for each.
 echo "$RULESET_JSON" | jq -e . >/dev/null 2>&1 \
   || die "$SOURCE_LABEL is not valid JSON"
+echo "$RULESET_JSON" | jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 \
+  || die "$SOURCE_LABEL is not exactly one JSON object -- nothing was validated"
 
 # The clud-bug[bot] GitHub App's own id. The one App-backed required check
 # reporulez ships (clud-bug-review) must be pinned to exactly this, per
@@ -228,7 +264,6 @@ CLUD_BUG_INTEGRATION_ID=3944857
 # delimiter ('JQ_PROGRAM') disables all bash expansion in the body,
 # including the literal $variable syntax jq itself needs.
 JQ_PROGRAM="$(mktemp)"
-trap 'rm -f "$JQ_PROGRAM"' EXIT
 
 cat > "$JQ_PROGRAM" <<'JQ_PROGRAM'
 def admin_bypass_present:
@@ -237,6 +272,10 @@ def admin_bypass_present:
         (.actor_type == "RepositoryRole" and .actor_id == 5) or
         (.actor_type == "OrganizationAdmin")
       ));
+
+def deletion_only:
+  (.rules | type) == "array" and (.rules | length) > 0
+  and all(.rules[]; type == "object" and .type == "deletion");
 
 def role_bypass_present(want_type; want_id):
   (.bypass_actors // []) as $b
@@ -261,8 +300,9 @@ def role_bypass_present(want_type; want_id):
   ),
 
   # admin-bypass-required (SPEC section 6.6, ERROR): the ruleset must carry a
-  # bypass a repository administrator can actually use.
-  ( if admin_bypass_present then empty
+  # bypass a repository administrator can actually use -- unless its only
+  # rules are `deletion` rules, which gate no ordinary work (see header).
+  ( if admin_bypass_present or deletion_only then empty
     else
       { rule: "admin-bypass-required", severity: "error",
         message: "bypass_actors carries no repository-administrator bypass (RepositoryRole actor_id=5 \"admin\", or OrganizationAdmin, bypass_mode=\"always\" or \"pull_request\") -- SPEC section 6.6: the ruleset MUST carry a bypass held by repository administrators, because the first thing a broken gate blocks is the change that would fix it." }
@@ -294,6 +334,10 @@ VIOLATIONS_JSON="$(echo "$RULESET_JSON" \
 ERROR_COUNT="$(echo "$VIOLATIONS_JSON" | jq '[.[] | select(.severity == "error")] | length')"
 WARNING_COUNT="$(echo "$VIOLATIONS_JSON" | jq '[.[] | select(.severity == "warning")] | length')"
 
+# Fail closed: a count that is not a single non-negative integer is not "zero".
+[[ "$ERROR_COUNT" =~ ^[0-9]+$ && "$WARNING_COUNT" =~ ^[0-9]+$ ]] \
+  || die "$SOURCE_LABEL: could not count violations (got '${ERROR_COUNT//$'\n'/ }' / '${WARNING_COUNT//$'\n'/ }') -- nothing was validated"
+
 # Print every violation regardless of severity or exit code -- a warning is
 # not a reason to hide it, only a reason not to block on it.
 echo "$VIOLATIONS_JSON" \
@@ -301,7 +345,7 @@ echo "$VIOLATIONS_JSON" \
 
 if [[ "$ERROR_COUNT" -gt 0 ]]; then
   echo "$ERROR_COUNT violation(s) found in $SOURCE_LABEL."
-  exit 1
+  finish 1
 fi
 
 if [[ "$WARNING_COUNT" -gt 0 ]]; then
@@ -309,4 +353,4 @@ if [[ "$WARNING_COUNT" -gt 0 ]]; then
 else
   echo "✓ $SOURCE_LABEL is valid — no violations found."
 fi
-exit 0
+finish 0
