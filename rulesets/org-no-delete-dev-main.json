@@ -1,0 +1,26 @@
+{
+  "name": "no-delete-dev-main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/dev",
+        "refs/heads/main"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "~ALL"
+      ],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [],
+  "rules": [
+    {
+      "type": "deletion"
+    }
+  ]
+}

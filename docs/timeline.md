@@ -13,6 +13,17 @@ PR's CI run, so this file is always coherent with current `main`.
 ---
 
 
+## 2026-11
+
+- **2026-11-12** — Org ruleset tooling reworked after four review rounds: presets re-captured from live, apply is a dry run that can only tighten, audit and validator never report clean when they did not check *(org-branch-policy-audit)* — [decisions-branches/org-branch-policy-audit.md](decisions-branches/org-branch-policy-audit.md)
+- **2026-11-12** — Dependabot target check, after review: a pass needs positive proof, the reusable workflow checks out its own commit, and a private name is gone *(feat/dependabot-target-check)* — [decisions-branches/feat__dependabot-target-check.md](decisions-branches/feat__dependabot-target-check.md)
+
+## 2026-09 (3 decisions)
+
+- **2026-09-15** — fix: check_one's verdict never survived --all --quiet's subshell (clud-bug PR #73 review) *(feat/dependabot-target-check)* — [decisions-branches/feat__dependabot-target-check.md](decisions-branches/feat__dependabot-target-check.md)
+- *... 1 more decision ...*
+- **2026-09-15** — Add org-default-protection and org-staging presets, ensure-dev-branch.sh, and docs/branch-policy.md for reporulez#71's org-wide main=production/dev=staging policy *(org-branch-policy-audit)* — [decisions-branches/org-branch-policy-audit.md](decisions-branches/org-branch-policy-audit.md)
+
 ## 2026-08 (5 decisions)
 
 - **2026-08-24** — Correct two claims in this branch's own record: a misattributed citation and an undercounted mutation *(feat/validate-ruleset-fields)* — [decisions-branches/feat__validate-ruleset-fields.md](decisions-branches/feat__validate-ruleset-fields.md)
