@@ -29,23 +29,31 @@ loop as well.
 
 ## Quickstart
 
+`apply.sh` is a **dry run by default**: without `--apply` it prints what it would change on
+`owner/repo` and writes nothing (see [`apply.sh`: dry run by default](#applysh-dry-run-by-default)).
+Read the output, then add `--apply`.
+
 ```sh
-# Default: the structural baseline (PR required, no force-push/deletion, linear, squash-only).
+# Dry run (the default): what would the baseline change? Writes nothing.
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
   | bash -s -- owner/repo
 
+# The structural baseline (PR required, no force-push/deletion, linear, squash-only):
+curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
+  | bash -s -- owner/repo --apply
+
 # clud-bug review gate (requires the clud-bug-review status check):
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo clud-bug
+  | bash -s -- owner/repo clud-bug --apply
 
 # Public repo with outside contributors — require a HUMAN code-owner approval:
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo public-guard
+  | bash -s -- owner/repo public-guard --apply
 
 # Full clud-bug + logmind stack (canonical 4 contexts ship in the variant),
 # plus your project's pytest matrix as extra required checks:
 curl -fsSL https://raw.githubusercontent.com/thrillmade/reporulez/main/bin/apply.sh \
-  | bash -s -- owner/repo skdd \
+  | bash -s -- owner/repo skdd --apply \
       --extra-check 'pytest (ubuntu-latest / py3.10)' \
       --extra-check 'pytest (ubuntu-latest / py3.12)'
 ```
@@ -142,7 +150,7 @@ pass the gate it changes, and an incident fix cannot wait for one." A ruleset
 with *no* self-mod ceremony needs the bypass *more*, not less, because there is
 no other legal path past a gate that is blocking its own fix. `rulesets/*.json`
 now bake the bypass in directly (not just at apply time), so a bare `apply.sh
-owner/repo` with no flags at all — the Quickstart default — ships a conformant
+owner/repo --apply` with no other flags — the Quickstart default — ships a conformant
 ruleset, and so does pointing `bin/validate-ruleset.sh` straight at any of
 `rulesets/*.json`.
 
@@ -188,6 +196,46 @@ WARNING, not a refusal: deleting a branch requires write access, not admin, so t
 doesn't excuse anyone below admin-level — it just also excuses every org owner, unconditionally,
 which is worth knowing, not worth blocking. See [Validating a ruleset before it applies]
 (#validating-a-ruleset-before-it-applies) for the full reasoning.
+
+### `apply.sh`: dry run by default
+
+```sh
+./bin/apply.sh owner/repo skdd --with-dependabot=python           # dry run: print each change, write nothing
+./bin/apply.sh owner/repo skdd --with-dependabot=python --apply   # write what is needed
+```
+
+`apply.sh` makes three kinds of write, and a dry run (no `--apply`) makes none of them. It
+reads the live repo settings, the live `.github/dependabot.yml` (with `--with-dependabot`)
+and the live `reporulez-default` ruleset, then prints:
+
+- **settings** — each of the seven managed keys whose live value differs from what `apply.sh`
+  sets;
+- **dependabot file** — whether it would be created or replaced (its content differs from the
+  template), or already matches;
+- **ruleset** — the same labelled differences as `apply-org.sh` (*tightens*, *weakens*,
+  *removes bypass*, defined under [`bin/apply-org.sh`](#binapply-orgsh-dry-run-by-default)).
+  Both scripts use one comparison, `bin/ruleset-compare.sh`.
+
+**The checked-in presets carry one bypass actor** (Repository admin). A live ruleset that was
+extended by hand carries more, so applying a preset to it removes the extras. With `--apply`
+alone that is refused. A *weakens* needs `--allow-weakening`; removing a live bypass actor or
+narrowing its mode needs `--allow-bypass-removal`; each flag permits only its own kind, and an
+absent key, `null` or a different JSON type is never read as a value. Read the dry run, then
+decide: there is no flag that makes a blind re-run safe.
+
+**Order: every read and every refusal comes before the first write.** Every read comes first: settings, the dependabot file,
+the ruleset list and the ruleset. Every refusal is decided from those reads before the first
+write. A read that failed or returned nothing usable (an empty body, `null`, the wrong shape,
+more than one JSON document, a different repository or ruleset than asked for), two live
+rulesets of the name, a near-name, or a ruleset change that needs a flag you did not pass is
+exit `2` with nothing written. Only then does it write: settings, the dependabot file, the
+ruleset. A write that itself fails stops the run and names what was already written, so a failed write can leave earlier writes in place.
+Exit codes: `0` no difference or applied, `1` a difference exists (dry run), `2` refused or
+failed. A change made to the live ruleset between the read and the write is not detected.
+
+The flags `--human-review`, `--bypass-admin`, `--no-bypass-admin`, `--extra-check` and
+`--with-dependabot` keep working; a `--human-review` or `--extra-check` is a *tightens* on a
+live ruleset that lacks it, and `--no-bypass-admin` is still refused by the validator.
 
 ## Org-level rulesets
 
@@ -278,7 +326,7 @@ repository-level read: an org ruleset's repository condition. The presets say
 **It LAYERS with repo-level rulesets — it never overrides them.** GitHub evaluates *every*
 ruleset that targets a branch, and a write must satisfy **all** of them. `apply-org.sh` does not
 touch rulesets applied by `apply.sh`, and does not PATCH per-repo settings like auto-merge /
-squash-only / delete-on-merge — keep using `apply.sh` per repo for those.
+squash-only / delete-on-merge — use `apply.sh` per repo for those (dry run first).
 
 **Requires the `admin:org` scope**, even for a dry run — reading org rulesets needs it:
 
@@ -355,7 +403,9 @@ The installer applies two things:
    - Delete head branch on merge
    - Squash commit title = PR title, message = PR body
 
-The script is idempotent — running it twice updates the existing ruleset instead of creating a duplicate.
+A second run is a comparison, not a blind replace: with no difference it writes nothing; otherwise it prints the differences (a dry run unless you pass `--apply`), writes only provable tightenings with `--apply` alone, and refuses a weakening or a bypass removal unless you pass `--allow-weakening` or `--allow-bypass-removal`. It replaces the ruleset by id, so it never creates a duplicate.
+
+When `bin/ruleset-compare.sh` is not beside the script (the `curl | bash` path), `apply.sh` and `apply-org.sh` fetch it from the same base URL as the presets and the validator (`REPORULEZ_RAW_BASE`, default the `main` branch of this repository), and refuse with exit `2`, before any `gh` call, if the fetch fails, the file is empty, or the file does not define the library's entry point (an error page, for example). The check is the presence of that one function, not a signature or a hash: a file that defines it but is otherwise wrong is not detected. The fetched library is trusted exactly as far as the presets and the validator fetched from that base URL.
 
 ## After install — manual steps
 
@@ -403,10 +453,11 @@ The script is idempotent — running it twice updates the existing ruleset inste
    ./bin/apply.sh owner/repo skdd --with-dependabot=python
    ```
 
-   Idempotent — re-running with the same flag is a no-op when the file is
-   already current. Silently overwrites a different existing
-   `.github/dependabot.yml` (consistent with how `--extra-check` and the
-   other flags overwrite the ruleset on re-apply).
+   Without `--apply` this prints whether the file would be created or replaced and
+   writes nothing. With `--apply`, re-running with the same flag is a no-op when the
+   file is already current; a different existing `.github/dependabot.yml` is replaced,
+   and the dry run says so first. The file write is not one of the ruleset's
+   *tightens / weakens / removes bypass* kinds and needs no extra flag.
 
    > **Known limitation, now narrower** (ecosystem switch on re-apply):
    > switching the `--with-dependabot=<eco>` value on a repo that already has
@@ -586,9 +637,11 @@ the human decides whether each instance is intentional or stale.
 Use `--strict` to flip the policy when you do want an enforcement
 gate (e.g. a scheduled CI workflow that fails on any drift).
 
-**Remediation when drift is unintentional**: re-run `apply.sh <repo>
-<variant>` to reset everything to the canonical values. `apply.sh` is
-idempotent, so a re-apply is safe.
+**Remediation when drift is unintentional**: dry-run `apply.sh <repo> <variant>`
+first and read what it would change. It resets the settings to the canonical
+values; for the ruleset it refuses, without the flags above, to remove or
+weaken anything live carries. A plain re-run is not a blind reset: it is a
+comparison.
 
 ## Upgrading logmind
 

@@ -26,6 +26,7 @@ reporulez
 │   ├── audit.sh
 │   ├── check-dependabot-target.sh
 │   ├── ensure-dev-branch.sh
+│   ├── ruleset-compare.sh
 │   ├── validate-ruleset.sh
 │   └── verify-integration-id-pin.sh
 ├── docs
@@ -51,6 +52,7 @@ reporulez
 │   └── pull_request_template.md
 ├── tests
 │   ├── fixtures
+│   ├── test-apply-repo.sh
 │   ├── test-check-dependabot-target.sh
 │   ├── test-org-scripts.sh
 │   └── test-validate-ruleset.sh

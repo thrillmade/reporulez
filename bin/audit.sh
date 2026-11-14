@@ -69,8 +69,9 @@
 # Output: one row per repo per setting, ✓ for match / ✗ for drift, with
 # a final summary.
 #
-# Remediation when drift is unintentional: re-run apply.sh on that repo
-# with the appropriate variant. See `apply.sh --help`.
+# Remediation when drift is unintentional: run apply.sh on that repo with the
+# appropriate variant WITHOUT --apply first and read the differences, then with
+# --apply (and the flag it names, if it refuses). See `apply.sh --help`.
 
 set -euo pipefail
 
@@ -419,9 +420,9 @@ fi
 # legitimately diverge. Use --strict to make this an error suitable
 # for a CI gate.
 if [[ "$STRICT" == "true" ]]; then
-  echo "✗ drift detected (--strict). Remediation: re-run \`apply.sh <owner/repo> <variant>\` on each drifted repo whose drift is unintentional."
+  echo "✗ drift detected (--strict). Remediation: run \`apply.sh <owner/repo> <variant>\` without --apply and read the differences, then with --apply (and the flag it names, if it refuses), on each drifted repo whose drift is unintentional."
   finish 1
 else
-  echo "ℹ drift detected. This is INFORMATIONAL — repos may legitimately diverge. Use --strict to make this exit 1 (suitable for CI gate). Remediation when unintentional: re-run \`apply.sh <owner/repo> <variant>\`."
+  echo "ℹ drift detected. This is INFORMATIONAL — repos may legitimately diverge. Use --strict to make this exit 1 (suitable for CI gate). Remediation when unintentional: run \`apply.sh <owner/repo> <variant>\` without --apply and read the differences, then with --apply (and the flag it names, if it refuses)."
   finish 0
 fi

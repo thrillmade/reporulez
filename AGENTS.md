@@ -22,8 +22,8 @@ This project uses [logmind](https://logmind.dev). What counts as a decision, bra
 ## Project Overview
 
 `reporulez` ships opinionated GitHub **repository rulesets** for AI-driven
-development. The installer (`bin/apply.sh`) tunes target-repo settings
-(auto-merge, squash-only, delete-on-merge) and POSTs a ruleset that requires
+development. The installer (`bin/apply.sh`, a dry run unless `--apply`) tunes target-repo
+settings (auto-merge, squash-only, delete-on-merge) and writes a ruleset that requires
 PRs, blocks force pushes and default-branch deletions, enforces thread
 resolution, and layers on a review gate depending on variant. Four variants
 — `baseline` (structural floor only), `clud-bug` (adds the `clud-bug-review`
@@ -50,8 +50,12 @@ jq . rulesets/*.json
 # Syntax-check the installer
 bash -n bin/apply.sh
 
-# Apply rulesets to a target repo (dogfood / end-to-end test)
-./bin/apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] [--human-review]
+# Compare a target repo with a preset. Dry run by default: writes nothing (settings,
+# .github/dependabot.yml and ruleset alike). Same flags and exit codes as apply-org.sh:
+# --apply writes only provable tightenings; --allow-weakening / --allow-bypass-removal
+# permit their own kind. Every read comes first, so a failed read writes nothing.
+# Never re-run it blind: the presets carry one bypass actor, live may carry more.
+./bin/apply.sh <owner/repo> [baseline|clud-bug|skdd|public-guard] [--apply] [--allow-weakening] [--allow-bypass-removal] [--human-review]
 
 # Compare an org-level preset with the live org. Dry run by default: writes nothing.
 # --apply writes only a change it can show tightens (or creates a missing ruleset);
@@ -68,13 +72,18 @@ bash tests/test-validate-ruleset.sh
 
 # The org scripts' write paths, against a fake gh — run it before you push
 bash tests/test-org-scripts.sh
+
+# apply.sh's dry run, refusals and write order, against the same kind of fake gh
+bash tests/test-apply-repo.sh
 ```
 
 `tests/test-validate-ruleset.sh` covers `bin/validate-ruleset.sh`.
 `tests/test-org-scripts.sh` covers `bin/apply-org.sh`, `bin/ensure-dev-branch.sh`
 and `bin/audit.sh`'s failed-read handling, with a fake `gh` that records every
-call. `bin/apply.sh` is still validated end-to-end by hand: apply against a
-throwaway repo and inspect via the GitHub UI / API. No count or duration is
+call. `tests/test-apply-repo.sh` covers `bin/apply.sh` the same way. The
+comparison both scripts use lives once, in `bin/ruleset-compare.sh`, which each
+sources; a change to a *tightens / weakens / removes bypass* rule is made there.
+No count or duration is
 quoted here on purpose — run it and read the output.
 
 ## The `dev` branch
